@@ -35,19 +35,22 @@
  * State: 8 lanes per part in the part's engine memory (engines.c eng_mem; drum_kit_of: the parameters, coefficients, voice and metal
  * source of each lane). */
 #include "drum_voice.c"
+#include "drum_ukit.c"
 
 /* 1.5.6 (Discussion #216): DEEP TIGHT PERC (9..11), kits put together from the five's pieces (drum_voice.c DV_KIT),
  * appended. Firmware before 1.5.6 clamps 9..11 to 8 (77) when it loads them (param_fit) */
-enum { DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_DSTR, DK_COUNT };   /* (KRIECHSTROM: DSTR appended, after Glitchbox) */   /* (stored values) */
+enum { DK_STD, DK_HAND, DK_CYM, DK_HCYM, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_DSTR, DK_USER, DK_COUNT };   /* (KRIECHSTROM: DSTR appended, after Glitchbox; USER: the kit of RAM lanes, drum_ukit.c) */   /* (stored values) */
 /* the kit a stored KIT value plays: HAND CYM H+CYM (retired after 1.0.4) -> 66 (a conga on TOM), 10 (a cymbal on
  * BELL), 77 (claves on RIM, a cymbal on BELL) */
 static const uint8_t DK_PLAYS[DK_COUNT] = {DK_STD, DK_66, DK_10, DK_77, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP,
-                                           DK_TIGHT, DK_PERC, DK_DSTR};
+                                           DK_TIGHT, DK_PERC, DK_DSTR, DK_USER};
 static uint32_t drum_kit_plays(int32_t v) { return DK_PLAYS[clamp(v, 0, DK_COUNT - 1)]; }
 /* the model kits' pieces where a lane plays another than its own (the lane's name): 1 TOM -> CONGA, 2 RIM -> CLAVE,
  * 4 BELL -> CYM */
 /* a model kit (80 10 66 55 77 DEEP TIGHT PERC: drum_voice.c DV_KIT), not STD or DSTR (Glitchbox: STD's pieces, destroyed) */
-static int drum_model_kit(uint32_t kit) { return kit >= DK_80 && kit <= DK_PERC; }
+static int drum_model_kit(uint32_t kit) { return (kit >= DK_80 && kit <= DK_PERC) || kit == DK_USER; }
+/* the kit nibble of a model kit or of USER (drum_voice.c DV_KTYPE) */
+static uint32_t drum_kit_nibble(uint32_t kit) { return kit == DK_USER ? DV_UKIT : kit - DK_80 + 1u; }
 static const uint8_t DK_SWAP[DV_NKIT] = {0, 4, 1, 0, 2 | 4, 4, 0, 1 | 2};
 static const uint8_t DV_TYPE_LANE[DVT_COUNT] = {
     DV_KICK, DV_KICK, DV_SNARE, DV_CLAP, DV_HATC, DV_HATO, DV_TOM, DV_TOM, DV_RIM, DV_RIM, DV_BELL, DV_BELL,
@@ -62,6 +65,7 @@ typedef struct {
     uint8_t role;                /* the drum struck (DVT_*) */
     int8_t st;                   /* its semitones from the designed pitch (the GM map) */
     uint8_t hcnt;                /* KIT DSTR: the crusher's hold counter (Felucca: padding) */
+    uint8_t ug;                  /* KIT USER: dv_ugen when the coefficients were set up */
     int32_t held;                /* KIT DSTR: the crusher's held sample */
 } drum_lane_t;
 
@@ -73,7 +77,7 @@ ENG_MEM_FITS("DRUM", sizeof(drum_lane_t) * DV_NLANE);
 static uint8_t drum_mute[NPART];
 
 /* 1..3 named as the kit they play: aliases, never shown or offered (EDITOR_PROTOCOL.md: retired values) */
-static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC", "DSTR"};
+static const char *const N_DRUM_KIT[] = {"STD", "66", "10", "77", "80", "10", "66", "55", "77", "DEEP", "TIGHT", "PERC", "DSTR", "USER"};
 static const char *const N_DRUM_KICK[] = {"PUNCH", "ROUND"};
 
 /* General MIDI notes 35..81 -> the drum (DVT_*; DVT_PUNCH: the kick KICK picks) and semitones from its
@@ -96,7 +100,7 @@ static uint32_t drum_gm(const int16_t *p, uint32_t note, int32_t *st)
     uint32_t kit = drum_kit_plays(p[P_E0]);           /* STD, the model kits */
     *st = DRUM_GM[n - 35u][1];
     if (drum_model_kit(kit))
-        return DV_KTYPE(kit - DK_80 + 1u, DV_TYPE_LANE[t]);
+        return DV_KTYPE(drum_kit_nibble(kit), DV_TYPE_LANE[t]);
     return t == DVT_PUNCH && p[P_E6] > 0 ? DVT_ROUND : t;
 }
 
@@ -117,6 +121,9 @@ static uint32_t drum_lane(uint32_t note)
 static uint32_t drum_swaps(const track_t *t)
 {
     uint32_t kit = drum_kit_plays(t->p[P_E0]);
+    if (kit == DK_USER)                                  /* USER: what its lanes play (a conga on TOM, claves on RIM, a cymbal on BELL) */
+        return (dv_ukit[DV_TOM].k.run == DVT_CONGA ? 1u : 0u) | (dv_ukit[DV_RIM].k.run == DVT_CLAVE ? 2u : 0u) |
+               (dv_ukit[DV_BELL].k.run == DVT_CYM ? 4u : 0u);
     return drum_model_kit(kit) ? DK_SWAP[kit - DK_80] : 0u;
 }
 
@@ -217,6 +224,7 @@ static void drum_note_on(track_t *t, voice_t *v)
     drum_lane_t *K = drum_kit_of(t), *L;
     uint32_t i = (uint32_t)(v - t->v), role, lane;
     int32_t st;
+    uk_ensure();
     if (!K || i >= NVOICE)
         return;
     role = drum_gm(t->p, v->note, &st);
@@ -304,9 +312,10 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         }
     }
     if (((const uint32_t *)&k)[0] != ((const uint32_t *)&L->key)[0] ||
-        ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1]) {
-        dv_setup(&L->c, &k);                             /* (a parameter moved) */
+        ((const uint32_t *)&k)[1] != ((const uint32_t *)&L->key)[1] || (DV_KITOF(k.type) == DV_UKIT && L->ug != dv_ugen)) {
+        dv_setup(&L->c, &k);                             /* (a parameter moved, or a number of the USER kit) */
         L->key = k;
+        L->ug = dv_ugen;
         if (dv_uses_metal(L->c.type))
             dv_metal_tune(&L->mb, &L->c);
     }

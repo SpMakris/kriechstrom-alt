@@ -1263,7 +1263,7 @@ static uint64_t seq_hash(const uint8_t (*ev)[3], uint32_t nev, uint32_t frames, 
 static void retired(void)
 {
     static const uint8_t MAP[4] = {DK_STD, DK_66, DK_10, DK_77};
-    static const uint8_t ORDER[10] = {DK_STD, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_DSTR};
+    static const uint8_t ORDER[11] = {DK_STD, DK_80, DK_10, DK_66, DK_55, DK_77, DK_DEEP, DK_TIGHT, DK_PERC, DK_DSTR, DK_USER};
     const param_desc_t *d = &ENG_DRUM.edit[0];
     uint32_t r, n, k, bad = 0, same = 0;
     int16_t kick;
@@ -1304,16 +1304,16 @@ static void retired(void)
     }
     {
         int32_t v = DK_STD, i;
-        for (i = 0; i < 10; i++) {                      /* STD 80 10 66 55 77 DEEP TIGHT PERC DSTR (KRIECHSTROM), then held */
+        for (i = 0; i < 11; i++) {                      /* STD 80 10 66 55 77 DEEP TIGHT PERC DSTR USER (KRIECHSTROM), then held */
             bad += v != ORDER[i];
             v = param_turn(d, v, 1);
         }
-        bad += v != DK_DSTR || param_turn(d, DK_80, -1) != DK_STD || param_turn(d, DK_STD, -1) != DK_STD;
+        bad += v != DK_USER || param_turn(d, DK_80, -1) != DK_STD || param_turn(d, DK_STD, -1) != DK_STD;
     }
     for (r = 1; r < 4u; r++)
         bad += strcmp(d->names[r], d->names[MAP[r]]) != 0 || enum_orig(d, (int32_t)r) != MAP[r] ||
                param_fit(d, (int32_t)r) != MAP[r];
-    bad += param_fit(d, 99) != DK_DSTR || param_fit(d, -5) != DK_STD || enum_orig(d, DK_55) != DK_55;
+    bad += param_fit(d, 99) != DK_USER || param_fit(d, -5) != DK_STD || enum_orig(d, DK_55) != DK_55;
     bad += param_fit(&TP[P_LEVEL], 77) != 77;
     {   /* a motion event of KIT 2 (CYM): stored and played as 10 */
         host_tracks_init();
@@ -1369,6 +1369,115 @@ static void demos(const char *dir)
            "keys, a beat (PUNCH, ROUND, the kits 80 10 66 55 77)\n", dir, (uint32_t)DVT_COUNT);
 }
 
+/* ------------------------------------------------------------ KIT USER --- */
+/* the USER kit (src/drum_ukit.c): 1. seeded from a model kit, every lane renders that kit's lane sample for sample (the
+ * same numbers through the same setup); 2. every field of every lane of every seed at its lowest and its highest, at the
+ * corners of DECAY TONE SNAP TUNE with LEVEL 127 and full accent: nothing at full scale, DC under 1 %, the voice stops; 3. a
+ * lane's RUN changed: the run's first shipped design; 4. a write moves a lane that is already set up (dv_ugen). */
+static float *ukit_ref;
+static void ukit(void)
+{
+    static const uint8_t C[2] = {0, 127};
+    static const int16_t TU[2] = {-400, 400};
+    uint32_t k, l, f, bad = 0, fields = 0, sweeps = 0;
+    char why[400] = "";
+    ukit_ref = (float *)malloc(sizeof(float) * FS);
+    for (k = 1; k <= DV_NKIT; k++) {
+        uk_seed(k);
+        for (l = 0; l < DV_NLANE; l++) {
+            dv_param_t p, q;
+            uint32_t i, diff = 0, a;
+            dv_default(&p, DV_KTYPE(k, l));
+            dv_default(&q, DV_KTYPE(DV_UKIT, l));
+            for (a = 0; a < 3u; a++) {                   /* the design, then DECAY TONE SNAP TUNE moved */
+                p.decay = q.decay = a == 1 ? 20 : 64, p.tone = q.tone = a == 1 ? 100 : 64, p.extra = q.extra = a == 2 ? 120 : 64;
+                p.tune = q.tune = a == 2 ? -37 : 0, p.level = q.level = 100, p.accent = q.accent = a ? 90 : 0;
+                render(&p, FS, 0, &B);
+                memcpy(ukit_ref, B.y, sizeof(float) * FS);
+                render(&q, FS, 0, &B2);
+                for (i = 0, diff = 0; i < FS; i++)
+                    diff += ukit_ref[i] != B2.y[i];
+                if (diff) {
+                    snprintf(why + strlen(why), sizeof why - strlen(why), " seed %u lane %u (%u): %u samples differ;", k, l, a, diff);
+                    bad++;
+                }
+            }
+        }
+    }
+    for (k = 1; k <= DV_NKIT; k++)
+        for (l = 0; l < DV_NLANE; l++) {
+            uint32_t n = 0;
+            uk_seed(k);
+            n = uk_count(l);
+            for (f = 0; f < UF_N; f++) {
+                const uk_meta_t *m = uk_meta(dv_ukit[l].k.run, f);
+                int32_t keep = uk_get(l, f), side;
+                if (!m)
+                    continue;
+                fields++;
+                for (side = 0; side < 2; side++) {
+                    uint32_t a;
+                    uk_set(l, f, side ? m->hi : m->lo);
+                    if (f == UF_RUN) {                   /* (another run: its own fields; sweep that below) */
+                        uk_seed(k);
+                        break;
+                    }
+                    for (a = 0; a < 16u; a++) {
+                        dv_param_t p;
+                        dv_default(&p, DV_KTYPE(DV_UKIT, l));
+                        p.decay = C[a & 1u], p.tone = C[(a >> 1) & 1u], p.extra = C[(a >> 2) & 1u], p.tune = TU[a >> 3];
+                        p.level = 127, p.accent = 127;
+                        render(&p, FS * 3u, 0, &B);
+                        sweeps++;
+                        if (B.over || dc_share(&B) > 0.01 || B.peak > 32700) {
+                            if (strlen(why) < 300)
+                                snprintf(why + strlen(why), sizeof why - strlen(why), " seed %u lane %u field %u %s corner %u: peak %d over %u DC %.2f %%;",
+                                         k, l, f, side ? "hi" : "lo", a, B.peak, B.over, dc_share(&B) * 100);
+                            bad++;
+                        }
+                    }
+                    uk_set(l, f, keep);
+                }
+            }
+            (void)n;
+        }
+    {   /* a RUN change loads the run's first shipped design; each of the 11 runs on lane 0 renders and stops */
+        uint32_t r;
+        for (r = 0; r < UK_NRUN; r++) {
+            dv_param_t p;
+            uk_seed(1);
+            uk_set(0, UF_RUN, (int32_t)r);
+            bad += dv_ukit[0].k.run != UK_RUNS[r];
+            dv_default(&p, DV_KTYPE(DV_UKIT, 0));
+            p.level = 127, p.accent = 127;
+            render(&p, FS * 11u, 0, &B);
+            if (B.over || B.peak < 200) {
+                snprintf(why + strlen(why), sizeof why - strlen(why), " run %u: peak %d over %u stop %u;", r, B.peak, B.over, B.stop);
+                bad++;
+            }
+        }
+    }
+    {   /* the engine's lane re-sets up when a number moves: the same hit renders another sound after uk_set */
+        dv_param_t p;
+        uint32_t i, diff = 0;
+        uk_seed(1);
+        dv_default(&p, DV_KTYPE(DV_UKIT, 0));
+        render(&p, FS / 2u, 0, &B);
+        memcpy(ukit_ref, B.y, sizeof(float) * (FS / 2u));
+        uk_set(0, UF_P16, dv_ukit[0].k.p16 + 120);
+        render(&p, FS / 2u, 0, &B);
+        for (i = 0; i < FS / 2u; i++)
+            diff += ukit_ref[i] != B.y[i];
+        bad += diff < 1000;
+        bad += uk_set(0, UF_V0 + 12, 5) != 0;           /* (a field the run does not use) */
+        bad += uk_set(0, UF_P16, 99999) != 1 || uk_get(0, UF_P16) != uk_meta(dv_ukit[0].k.run, UF_P16)->hi;
+    }
+    free(ukit_ref);
+    printf("drum_test: KIT USER: seeded from each model kit it renders those lanes sample for sample; %u fields over 8 lanes of 8 seeds at their lowest and highest, %u corner sweeps, nothing at full scale, DC, the end; every run loads; a write moves a lane: %s%s\n",
+           fields, sweeps, bad ? "FAIL" : "ok", why);
+    fails += bad != 0;
+}
+
 int main(int argc, char **argv)
 {
     if (!getenv("NOCOST")) {
@@ -1385,6 +1494,7 @@ int main(int argc, char **argv)
     kits();
     kit_keys();
     retired();
+    if (!getenv("NO_UKIT")) ukit();
     lane_budget();
     lane_levels();
     engine();

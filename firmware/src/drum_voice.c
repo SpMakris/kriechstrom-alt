@@ -77,6 +77,8 @@ enum {
 /* a lane of a model kit as a type: the kit (1..DV_NKIT) in the high 4 bits, the lane in the low 3 (Felucca's own
  * types: 0 above). Its run (the DVT_* it plays through) is the kit's (DV_KIT) */
 #define DV_NKIT 8                                        /* (1.5.6, #216: DEEP TIGHT PERC after 77) */
+#define DV_UKIT 9                                        /* KRIECHSTROM: the USER kit, the kit nibble after DV_NKIT: its 8 lanes
+                                                          * are RAM (dv_ukit), every number of a dv_kit_t editable */
 #define DV_KITOF(t) ((uint32_t)(t) >> 4)
 #define DV_KTYPE(kit, lane) ((uint8_t)(((kit) << 4) | (lane)))
 
@@ -186,6 +188,19 @@ typedef struct {
     uint16_t tau0, gain;
     int16_t v[13];
 } dv_kit_t;
+/* KRIECHSTROM: the USER kit. A lane is a dv_kit_t as the model kits have it (the run, the pitch, the decay, the gain and
+ * the run's 13 numbers v[], above), and the numbers the model kits keep in code: the accent per kit (DV_KIT_ACC), the
+ * kick's attack sweep tau and the hats' choke tau (both 0.1 ms; 0: the model kits' 1.5 ms), and the metal source's six
+ * ratios (Q12; a lane that uses the metal source plays these, DV_METAL_R is only where a lane was seeded from). The
+ * editor's and the machine's writes go through drum_ukit.c (every number into its range); dv_ugen counts them, so a
+ * lane sets its coefficients up again. */
+typedef struct {
+    dv_kit_t k;
+    uint8_t acc, atk, chk, rsv;
+    uint16_t ratio[6];
+} dv_ulane_t;
+static dv_ulane_t dv_ukit[DV_NLANE];
+static uint8_t dv_ugen;
 /* the accent per kit: + (x / 16384) per accent step (75: +4 dB at full, as Felucca's own) */
 static const uint8_t DV_KIT_ACC[DV_NKIT] = {120, 45, 100, 40, 40, 80, 60, 70};
 static const dv_kit_t DV_KIT[DV_NKIT][DV_NLANE] = {
@@ -522,10 +537,11 @@ static void dv_drive(int32_t *g, int32_t *keep, int32_t d)
 static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
 {
     uint32_t kit = DV_KITOF(p->type) - 1u, d = p->decay, tn = p->tone, x = p->extra, i;
-    const dv_kit_t *K = &DV_KIT[kit][p->type & 7u];
+    const dv_ulane_t *U = kit == DV_UKIT - 1u ? &dv_ukit[p->type & 7u] : 0;   /* (the USER kit: RAM) */
+    const dv_kit_t *K = U ? &U->k : &DV_KIT[kit][p->type & 7u];
     const int16_t *v = K->v;
     int32_t p16, dp, acc = p->accent;
-    uint32_t tau;
+    uint32_t tau, atk = U && U->atk ? (uint32_t)U->atk * 100u : 1500u, chk = U && U->chk ? (uint32_t)U->chk * 100u : 1500u;
     p16 = clamp(K->p16 + p->tune, K->p16 - 192, K->p16 + 192);
     dp = p16 - K->p16;
     tau = dv_tau_of(K->tau0, K->oct16, d);
@@ -535,13 +551,13 @@ static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
     c->inc[0] = DV_P16(p16);
     c->metal = (int16_t)p16;
     c->out = (int32_t)(K->gain * (uint32_t)p->level / 127u);
-    c->out += (c->out * acc * DV_KIT_ACC[kit]) >> 14;
+    c->out += (c->out * acc * (U ? U->acc : DV_KIT_ACC[kit])) >> 14;
     switch (K->run) {
     case DVT_PUNCH: {
         int32_t b = dv_at(v[0], tn) + (tn > 64u ? (int32_t)tn - 64 : 0);   /* (TONE above 64: +4 semitones more) */
         c->span[1] = DV_P16(p16 + b) - c->inc[0];
         c->span[0] = DV_P16(p16 + v[2] + b) - DV_P16(p16 + b);
-        c->k[0] = dv_k(1500);
+        c->k[0] = dv_k(atk);
         c->k[1] = dv_k((uint32_t)v[1] * 100u);
         c->k[2] = v[8] ? dv_k((uint32_t)v[8] * 100u) : 0;   /* the rise */
         c->kb[0] = dv_kb(tau);
@@ -592,10 +608,10 @@ static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
         c->g[1] = dv_at(v[4], x) + (x > 64u ? ((int32_t)x - 64) * 64 : 0);   /* (SNAP above 64: up to x1 more) */
         c->kb[0] = dv_kb(tau);
         c->k[1] = dv_k((uint32_t)v[7] * 100u);
-        c->kb[1] = dv_kb(1500);
+        c->kb[1] = dv_kb(chk);
         c->span[0] = (uint32_t)v[5];                     /* the metal source, noise (dv_run) */
         c->span[1] = (uint32_t)v[6];
-        c->mrow = (uint8_t)v[8];
+        c->mrow = U ? (uint8_t)(8u + (p->type & 7u)) : (uint8_t)v[8];   /* (USER: the lane's own ratios) */
         break;
     }
     case DVT_CYM:
@@ -608,7 +624,7 @@ static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
         c->g[2] = dv_at(v[5], x) + acc * 60;
         c->span[0] = (uint32_t)v[7];
         c->span[1] = (uint32_t)v[8];
-        c->mrow = (uint8_t)v[9];
+        c->mrow = U ? (uint8_t)(8u + (p->type & 7u)) : (uint8_t)v[9];
         break;
     case DVT_TOM:
     case DVT_CONGA:
@@ -642,7 +658,7 @@ static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
 
 static void dv_setup(dv_coef_t *c, const dv_param_t *p)
 {
-    if (DV_KITOF(p->type) - 1u < DV_NKIT)
+    if (DV_KITOF(p->type) - 1u < DV_UKIT)
         dv_setup_kit(c, p);
     else
         dv_setup_own(c, p);
@@ -651,7 +667,7 @@ static void dv_setup(dv_coef_t *c, const dv_param_t *p)
 static void dv_metal_tune(dv_metal_t *b, const dv_coef_t *c)
 {
     uint32_t i, inc = DV_P16(c->metal);
-    const uint16_t *r = DV_METAL_R[c->mrow];
+    const uint16_t *r = c->mrow >= 8u ? dv_ukit[c->mrow & 7u].ratio : DV_METAL_R[c->mrow % 7u];   /* (8..15: the USER lane's) */
     for (i = 0; i < 6u; i++)
         b->inc[i] = (inc >> 12) * r[i];
 }
@@ -994,7 +1010,7 @@ static void dv_run(const dv_coef_t *c, dv_voice_t *v, const int32_t *metal, int3
 /* the run a type plays through (DVT_*): itself, or its model kit's lane's */
 static uint32_t dv_run_type(uint32_t type)
 {
-    return DV_KITOF(type) - 1u < DV_NKIT ? DV_KIT[DV_KITOF(type) - 1u][type & 7u].run : type < DVT_COUNT ? type : 0u;
+    return DV_KITOF(type) == DV_UKIT ? dv_ukit[type & 7u].k.run : DV_KITOF(type) - 1u < DV_NKIT ? DV_KIT[DV_KITOF(type) - 1u][type & 7u].run : type < DVT_COUNT ? type : 0u;
 }
 
 /* the designed parameters of a type (LEVEL 100, no accent); a model kit's lane: 64 each */
