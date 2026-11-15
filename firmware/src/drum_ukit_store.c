@@ -68,6 +68,13 @@ static int uks_name_ok(const char *s)
 }
 
 static int uks_valid(uint32_t k) { return k < UKS_SAVED && ((uks.used >> k) & 1u); }
+_Static_assert(UKS_SAVED == KIT_NSAVED, "ui_kitedit.c");
+static uint32_t uks_mask(void) { return uks.used & ((1u << UKS_SAVED) - 1u); }
+static void uks_name(uint32_t k, char *b)        /* (ui_kitedit.c) the name, 0-terminated */
+{
+    memcpy(b, uks.r[k % UKS_N].name, 12);
+    b[12] = 0;
+}
 
 /* the object's bytes -> RAM: the kits as flash holds them, none when it holds something else */
 static void uks_check(int len)

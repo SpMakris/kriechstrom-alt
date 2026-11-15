@@ -1248,6 +1248,8 @@ static uint32_t graph_signature(void)
                                                      * levels, FB; the operator pages: the operator, the stage) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + (fop_op + 1u) * 40503u + (fop_stg + 1u) * 7919u;
     if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE) h ^= sample_wave.pos * 13u + sample_wave.key;
+    if (kit_page(pg->graph) || pg->graph == GR_KITSLOT)   /* the USER kit: its numbers, the lane, the slot, the saved ones */
+        h ^= ((uint32_t)dv_ugen + 1u) * 2654435761u + (uint32_t)kit_lane * 40503u + (uint32_t)kit_slot * 7919u + uks_mask() * 668265263u;
     if (pg->graph == GR_ROLL) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (ph / 16u != ui.bank)
@@ -1430,6 +1432,36 @@ static void graph_user(void)
         else
             str_cpy(nm, "--", sizeof nm);
         list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
+    }
+}
+/* EDIT > KIT n (ui_kitedit.c): the lane's fields around this page's three, a row each, the page's rows picked */
+static void graph_kit(void)
+{
+    uint32_t n = uk_count(kit_lane), pg = kit_pg(), first, row;
+    first = pg * 3u > 2u ? pg * 3u - 2u : 0u;
+    first = n > 7u && first > n - 7u ? n - 7u : n > 7u ? first : 0u;
+    for (row = 0; row < 7u && first + row < n; row++) {
+        uint32_t j = first + row, f = uk_nth(kit_lane, j);
+        const uk_meta_t *m = uk_meta(dv_ukit[kit_lane].k.run, f);
+        char v[12];
+        if (!m)
+            continue;
+        if (f == UF_RUN)
+            str_cpy(v, UK_RUN_NAME[(uint32_t)uk_get(kit_lane, f) % UK_NRUN], 12);
+        else
+            fmt_int(v, uk_get(kit_lane, f));
+        list_row(LIST_Y(row), j / 3u == pg, m->name, T_MID, v, T_TEXT, 232);
+    }
+}
+/* EDIT > KIT SLOT: the kits around the one picked */
+static void graph_kitslot(void)
+{
+    int32_t row, first = clamp((int32_t)kit_slot - 3, 0, (int32_t)KIT_SLOTS - 7);
+    for (row = 0; row < 7; row++) {
+        uint32_t k = (uint32_t)(first + row);
+        char tag[4], nm[13];
+        kit_slot_label(k, tag, nm);
+        list_row(LIST_Y(row), k == kit_slot % KIT_SLOTS, tag, T_MID, nm, kit_slot_used(k) ? T_TEXT : T_DIM, 232);
     }
 }
 /* SAVE > PHRASES: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
@@ -2322,6 +2354,14 @@ static void draw_graph(void)
         case GR_USER:
             cv_oy = 0;
             graph_user();
+            break;
+        case GR_KIT0: case GR_KIT1: case GR_KIT2: case GR_KIT3: case GR_KIT4: case GR_KIT5: case GR_KIT6:
+            cv_oy = 0;
+            if (kit_ok()) graph_kit();
+            break;
+        case GR_KITSLOT:
+            cv_oy = 0;
+            graph_kitslot();
             break;
         case GR_SONG:
             cv_oy = 0;

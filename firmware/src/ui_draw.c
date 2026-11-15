@@ -508,6 +508,13 @@ static void span_fop(const card_span_t *sp, int32_t v, char *val)       /* FM6's
     uint32_t ic;
     (void)fop_card_at((uint32_t)sp->ctx, v, &l, val, &u, &r, &ic);
 }
+static void span_kit(const card_span_t *sp, int32_t v, char *val)       /* the USER drum kit's pages: card ctx's field = v */
+{
+    const char *l, *u;
+    int32_t r;
+    uint32_t ic;
+    (void)kit_card_at((uint32_t)sp->ctx, v, &l, val, &u, &r, &ic);
+}
 static void card_span_by(void (*fn)(const card_span_t *, int32_t, char *), const void *p, int32_t lo, int32_t hi, int32_t ctx)
 {
     card_span.fn = fn;
@@ -1176,6 +1183,34 @@ static void draw_columns(void)
         return;
     }
 #endif
+    if (kit_page(cur_page()->graph)) {                   /* the USER drum kit: LANE, then three of its fields (ui_kitedit.c) */
+        for (c = 0; c < 4u; c++) {
+            const char *lb, *u;
+            int32_t r;
+            uint32_t ic;
+            if (!kit_ok() || !kit_card_at(c, -1, &lb, val, &u, &r, &ic)) {   /* (a lane with fewer fields: blank) */
+                draw_column(c, "", "", "", T_THEME, -1, ICON_NONE);
+                continue;
+            }
+            if (c) {
+                const uk_meta_t *m = uk_meta(dv_ukit[kit_lane].k.run, kit_field(c));
+                card_span_by(span_kit, 0, m->lo, m->hi, (int32_t)c);
+            }
+            draw_column(c, lb, val, u, VAL(c), r, ic);
+        }
+        return;
+    }
+    if (cur_page()->graph == GR_KITSLOT) {               /* SLOT, then LOAD ERASE SAVE (ui_kitedit.c) */
+        uint32_t k = kit_slot % KIT_SLOTS;
+        int used = kit_slot_used(k);
+        char nm[13];
+        kit_slot_label(k, val, nm);
+        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)k * 1000 / (int32_t)(KIT_SLOTS - 1u), ICON_AUTO);
+        draw_act_column(1, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
+        draw_act_column(2, "ERASE", used && k < KIT_NSAVED ? T_THEME : T_DIM, ICON_AUTO);
+        draw_act_column(3, "SAVE", k < KIT_NSAVED ? T_THEME : T_DIM, ICON_AUTO);
+        return;
+    }
     if (fop_page(cur_page()->graph)) {                   /* FM6: OP, then three of its bytes (ui_fm6op.c) */
         for (c = 0; c < 4u; c++) {
             const char *lb, *u;

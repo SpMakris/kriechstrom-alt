@@ -1618,6 +1618,100 @@ static void dump_frame(const char *tag, uint32_t a0, uint32_t a1)
         for (i = 4; i + 1u < host_wire_n; i++) printf("%02x", host_wire[i]);
     printf("\n");
 }
+/* the USER drum kit for the tablet (tablet/kitdata.js, tablet/fwcheck.mjs): KRST_KIT_DATA=1 prints what the mock needs as a
+ * JS module: the runs, the model kits and every lane of them as the fields hold them, each run's fields (name, range);
+ * KRST_KIT_SCRIPT=1 prints a request script with the firmware's answers: K <cmd> <n> <args hex>_<reply hex> */
+static void kit_data_dump(void)
+{
+    uint32_t k, l, f, r;
+    uk_ready = 1;
+    printf("// made by the firmware's host test: KRST_KIT_DATA=1 editor_test (vendor/kriechstrom/tests/editor_test.c); do not edit\n");
+    printf("export const KIT = {\n  runs: [");
+    for (r = 0; r < UK_NRUN; r++) printf("%s\"%s\"", r ? ", " : "", UK_RUN_NAME[r]);
+    printf("],\n  seeds: [");
+    for (k = 0; k < DV_NKIT; k++) printf("%s\"%s\"", k ? ", " : "", N_DRUM_KIT[DK_80 + k]);
+    printf("],\n  nfields: %u,\n  /* per run, per field: [name, lo, hi] or 0 where the run does not use it */\n  meta: [\n", (unsigned)UF_N);
+    for (r = 0; r < UK_NRUN; r++) {
+        printf("    [");
+        for (f = 0; f < UF_N; f++) {
+            const uk_meta_t *m = uk_meta(UK_RUNS[r], f);
+            if (m) printf("%s[\"%s\", %d, %d]", f ? ", " : "", m->name, (int)m->lo, (int)m->hi);
+            else printf("%s0", f ? ", " : "");
+        }
+        printf("]%s\n", r + 1u < UK_NRUN ? "," : "");
+    }
+    printf("  ],\n  /* per model kit, per lane: every field */\n  seed: [\n");
+    for (k = 0; k < DV_NKIT; k++) {
+        uk_seed(k + 1u);
+        printf("    [\n");
+        for (l = 0; l < DV_NLANE; l++) {
+            printf("      [");
+            for (f = 0; f < UF_N; f++) printf("%s%d", f ? ", " : "", (int)uk_get(l, f));
+            printf("]%s\n", l + 1u < DV_NLANE ? "," : "");
+        }
+        printf("    ]%s\n", k + 1u < DV_NKIT ? "," : "");
+    }
+    printf("  ],\n};\n");
+}
+static void kreq(uint32_t cmd, const uint8_t *a, uint32_t n)
+{
+    uint32_t i, k;
+    request(cmd, a, n);
+    for (k = 0; k < 200u && !(host_wire_n && host_wire[host_wire_n - 1u] == 0xF7u); k++) { ed_service(); host_drain(); }
+    printf("K %u %u ", (unsigned)cmd, (unsigned)n);
+    for (i = 0; i < n; i++) printf("%02x", a[i]);
+    printf("_");
+    if (host_wire_n >= 6u)
+        for (i = 4; i + 1u < host_wire_n; i++) printf("%02x", host_wire[i]);
+    printf("\n");
+}
+static void kit_script(void)
+{
+    uint32_t k, l, f, i, r, n;
+    uint8_t a[8];
+    reset();
+    uks_boot();
+    kreq(ED_KIT_INFO, a, 0);
+    for (k = 1; k <= DV_NKIT; k++) {
+        a[0] = 127; a[1] = (uint8_t)k; kreq(ED_KIT_SEED, a, 2);
+        for (l = 0; l < DV_NLANE; l++) { a[0] = (uint8_t)l; kreq(ED_KIT_LANE, a, 1); }
+    }
+    for (r = 0; r < UK_NRUN; r++) {                      /* every run on every lane: its first design */
+        for (l = 0; l < DV_NLANE; l += 3u) {
+            a[0] = (uint8_t)l; a[1] = UF_RUN; a[2] = (uint8_t)((r + ED_KIT_OFS) & 127); a[3] = (uint8_t)(((r + ED_KIT_OFS) >> 7) & 127); a[4] = 0;
+            kreq(ED_KIT_SET, a, 5);
+        }
+    }
+    a[0] = 127; a[1] = 1; kreq(ED_KIT_SEED, a, 2);
+    for (l = 0; l < DV_NLANE; l++) {                     /* every field of every lane at its edges and a middle, and out of its range */
+        for (r = 0; r < 2u; r++) {
+            if (r) { a[0] = 127; a[1] = (uint8_t)(2u + l % 7u); kreq(ED_KIT_SEED, a, 2); }
+            n = uk_count(l);
+            for (i = 0; i < n; i++) {
+                int32_t lo, hi, v[4];
+                const uk_meta_t *m;
+                uint32_t j;
+                f = uk_nth(l, i);
+                m = uk_meta(dv_ukit[l].k.run, f);
+                lo = m->lo; hi = m->hi;
+                v[0] = lo - 3; v[1] = hi + 3; v[2] = (lo + hi) / 2; v[3] = hi;
+                for (j = 0; j < 4u; j++) {
+                    uint32_t u = (uint32_t)(v[j] + ED_KIT_OFS);
+                    if (v[j] + ED_KIT_OFS < 0) u = 0;
+                    a[0] = (uint8_t)l; a[1] = (uint8_t)f; a[2] = (uint8_t)(u & 127u); a[3] = (uint8_t)((u >> 7) & 127u); a[4] = (uint8_t)((u >> 14) & 127u);
+                    kreq(ED_KIT_SET, a, 5);
+                }
+            }
+            a[0] = (uint8_t)l; kreq(ED_KIT_LANE, a, 1);
+        }
+    }
+    for (l = 0; l < DV_NLANE; l++) {                     /* a piece of another kit */
+        a[0] = (uint8_t)l; a[1] = (uint8_t)(1u + (l * 3u) % DV_NKIT); a[2] = (uint8_t)((l * 5u + 1u) % DV_NLANE); kreq(ED_KIT_SEED, a, 3);
+        a[0] = (uint8_t)l; kreq(ED_KIT_LANE, a, 1);
+    }
+    a[0] = 2; a[1] = 6; kreq(ED_KIT_SLOT, a, 2);         /* LOAD of a kit not there; a slot out of range */
+    a[0] = 2; a[1] = 9; kreq(ED_KIT_SLOT, a, 2);
+}
 static void desc_dump(void)
 {
     uint32_t e, id;
@@ -1652,6 +1746,8 @@ static void desc_dump(void)
 int main(void)
 {
     if (getenv("KRST_DESC_DUMP")) { desc_dump(); return 0; }
+    if (getenv("KRST_KIT_DATA")) { reset(); kit_data_dump(); return 0; }
+    if (getenv("KRST_KIT_SCRIPT")) { kit_script(); return 0; }
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + kit_proto() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol() + custom_palette();

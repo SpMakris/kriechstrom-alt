@@ -12,6 +12,7 @@
 
 static const char H_EDIT[] = "[K1-4]SOUND[EDIT]HOLD: ENGINES";
 static const char H_LANES[] = "[K1-4]LANE LEVELS[EDIT]HOLD: MUTES";
+static const char H_KIT[] = "[K1]LANE[K2]NUMBER[EDIT]PAGE";   /* (ui_kitedit.c) */
 static const char H_FMOP[] = "[K1]OPERATOR[SAVE]HOLD: UNDO";
 static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"ENV", "[K1-4]A D S R[ENV]ENV DEST"},
@@ -39,6 +40,14 @@ static const struct { const char *title, *hint; } HELP_PAGE[] = {
     {"OPERATOR", H_FMOP},
     {"OP ENV", H_FMOP},
     {"OPERATOR 2", H_FMOP},
+    {"KIT", H_KIT},
+    {"KIT 2", H_KIT},
+    {"KIT 3", H_KIT},
+    {"KIT 4", H_KIT},
+    {"KIT 5", H_KIT},
+    {"KIT 6", H_KIT},
+    {"KIT 7", H_KIT},
+    {"KIT SLOT", "[K1]KIT[OCT+]LOAD, SAVE"},
     {"VOICE", "[K1]POLY, MONO[K2]GLIDE"},
     {"VOICE 2", "[K2]DETUNE[K3]PAN[K4]MUTE"},
     {"VOICE 3", "[K1]SPREAD[K2]AFTERTOUCH F3-C5"},

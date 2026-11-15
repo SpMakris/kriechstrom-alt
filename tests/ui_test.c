@@ -9191,6 +9191,77 @@ static int test_fm6_foot_name(void)
     fm6_bank_read = 0;
     return bad;
 }
+/* the USER drum kit's pages (EDIT > KIT, KIT SLOT: ui_kitedit.c): shown on a DRUM track with KIT USER only; KNOB 1 the lane,
+ * KNOB 2..4 the lane's fields (uk_nth), each detent one write into the field's range; KIT SLOT: SLOT LOAD ERASE SAVE */
+static int kit_vis_of(const char *title)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES && !str_eq(PAGES[i].title, title); i++)
+        ;
+    return i < NPAGES && page_visible(i);
+}
+static int test_kit_pages(void)
+{
+    int bad = 0, ok;
+    int32_t run0, g0;
+    uint32_t f2;
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_DRUM);
+    TSEL->p[P_E0] = DK_80;
+    bad += check("KIT pages: not on a DRUM track whose KIT is a model kit", !kit_vis_of("KIT") && !kit_vis_of("KIT SLOT"));
+    TSEL->p[P_E0] = DK_USER;
+    uk_ensure();
+    bad += check("KIT pages: KIT USER shows KIT, KIT 2.. as far as a lane has fields, and KIT SLOT",
+                 kit_vis_of("KIT") && kit_vis_of("KIT 2") && kit_vis_of("KIT 6") && kit_vis_of("KIT SLOT") && kit_pages() >= 6u);
+    set_engine_of(TSEL, ENGI_FM6);
+    bad += check("KIT pages: not on another engine", !kit_vis_of("KIT") && !kit_vis_of("KIT SLOT"));
+    set_engine_of(TSEL, ENGI_DRUM);
+    TSEL->p[P_E0] = DK_USER;
+    kit_lane = 0;
+    go_title("KIT"); frame();
+    run0 = uk_get(0, UF_RUN);
+    turn(EN_K2, 1);
+    bad += check("KIT: KNOB 2 on lane 1 steps RUN, nothing else of the lane changes", uk_get(0, UF_RUN) == run0 + 1 && kit_lane == 0u);
+    turn(EN_K2, -1);
+    turn(EN_K1, 2);
+    ok = kit_lane == 2u;
+    g0 = uk_get(2, UF_P16);
+    turn(EN_K3, 3);
+    ok &= uk_get(2, UF_P16) != g0 && uk_get(2, UF_P16) <= UK_PIT[uk_family(dv_ukit[2].k.run)].hi;
+    bad += check("KIT: KNOB 1 picks the lane, KNOB 3 steps its PITCH inside the range", ok);
+    for (g0 = 0; g0 < 40; g0++) turn(EN_K3, 20);
+    bad += check("KIT: turning far stops at the top of the range", uk_get(2, UF_P16) == UK_PIT[uk_family(dv_ukit[2].k.run)].hi);
+    go_title("KIT 2"); frame();
+    f2 = uk_nth(2, 3);
+    g0 = uk_get(2, f2);
+    turn(EN_K2, 1);
+    bad += check("KIT 2: KNOB 2 is the lane's 4th field", uk_get(2, f2) != g0 || uk_get(2, f2) == uk_meta(dv_ukit[2].k.run, f2)->hi);
+    /* KIT SLOT: SAVE K1, change, LOAD K1 */
+    go_title("KIT SLOT"); frame();
+    kit_slot = 0;
+    stop_transport();
+    turn(EN_K1 + 3, 1);
+    press(B_OCTUP);
+    bad += check("KIT SLOT: SAVE writes the working kit into K1", uks_valid(0) && !strcmp(uks.r[0].name, "KIT 1"));
+    uk_set(2, UF_GAIN, uk_get(2, UF_GAIN) / 2);
+    g0 = uk_get(2, UF_GAIN);
+    turn(EN_K1 + 1, -1);
+    turn(EN_K1 + 1, 1);
+    press(B_OCTUP);
+    bad += check("KIT SLOT: LOAD K1 brings the saved numbers back", uk_get(2, UF_GAIN) != g0);
+    turn(EN_K1, 8);
+    ok = kit_slot == 8u;
+    turn(EN_K1 + 1, -1);
+    turn(EN_K1 + 1, 1);
+    press(B_OCTUP);
+    bad += check("KIT SLOT: a model kit's slot LOADs it into all eight lanes", ok && uk_get(0, UF_RUN) == (int32_t)uk_run_index(DV_KIT[1][0].run) && uk_get(5, UF_P16) == DV_KIT[1][5].p16);
+    turn(EN_K1, -9);
+    turn(EN_K1 + 2, 1);
+    press(B_OCTUP);
+    bad += check("KIT SLOT: ERASE removes K1", !uks_valid(0));
+    return bad;
+}
+
 static int slot_own(void) { return TSEL->p[P_E7] == FM6_OWN && fm6_slot[song.sel] == FM6_OWN; }
 static int test_fm6_ops(void)
 {
@@ -10121,6 +10192,7 @@ int main(void)
     bad += test_momentary();
     bad += test_fm6_charts();
     bad += test_fm6_ops();
+    bad += test_kit_pages();
     bad += test_fm6_foot_name();
     bad += test_home_tracks();
     bad += test_fx_map_columns();

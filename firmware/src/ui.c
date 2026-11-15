@@ -438,8 +438,11 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without FELUCCA_FM4: never). SLICES:
  * a SLICE track's (ui_slice.c); LANES / LANES 2 a DRUM track's (its lane levels); FILTER an ANALOG track's; OPERATOR, OP ENV, OPERATOR 2 an FM6
  * track's (its patch's operators, ui_fm6op.c) */
+static int kit_vis(uint32_t g);
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].graph >= GR_KIT0 && PAGES[i].graph <= GR_KITSLOT)   /* the USER drum kit (ui_kitedit.c) */
+        return kit_vis(PAGES[i].graph);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return TSEL->eng_req % NENGINES == ENGI_DRUM;
     if (PAGES[i].id[0] == P_FTYPE)                    /* FILTER (1.5, #104): ANALOG's */
@@ -1774,6 +1777,7 @@ static void track_select(uint32_t i)
 }
 
 #include "ui_slice.c"                             /* EDIT > SLICES: SLICE's slices by hand (an action page too) */
+#include "ui_kitedit.c"                          /* EDIT > KIT, KIT SLOT: the USER drum kit (cards, knobs, actions) */
 #include "ui_events.c"                            /* SEQ > AUTOMATION: locks, events, CHANCE, RATCH as a list (an action page) */
 #include "midi_learn.c"                           /* MIDI LEARN (1.5): GLO + D4, a knob, a CC */
 
@@ -1795,7 +1799,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
         return 1u;                               /* PLAY / STOP (also the PLAY button) */
     if (pg->graph == GR_PATS)
         return 2u;                               /* LOAD */
-    if (pg->graph == GR_USER)
+    if (pg->graph == GR_USER || pg->graph == GR_KITSLOT)
         return 14u;                              /* LOAD ERASE SAVE */
     if (pg->graph == GR_SLICES)
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
@@ -1829,7 +1833,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return song.playing || chain_busy() ? "STOP" : "PLAY";
     if (cur_page()->graph == GR_PATS)
         return "LOAD";
-    if (cur_page()->graph == GR_USER)
+    if (cur_page()->graph == GR_USER || cur_page()->graph == GR_KITSLOT)
         return UP_GO[(c + 2u) % 3u];
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
@@ -1855,6 +1859,8 @@ static int act_ready(void)
         return pat_last[s] != pat_pick() + 1u || steps_sig(TSEL) != pat_sig[s];
     if (cur_page()->graph == GR_USER)
         return c == 3u ? !song.playing : up_used(ui.uslot) && (c == 1u || !song.playing);
+    if (cur_page()->graph == GR_KITSLOT)
+        return c == 3u ? !song.playing : kit_slot_used(kit_slot % KIT_SLOTS) && (c == 1u || (!song.playing && kit_slot < KIT_NSAVED));
 #if FELUCCA_SLICE
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);

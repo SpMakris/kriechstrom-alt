@@ -93,7 +93,7 @@ static int mom_turn(uint32_t k, int32_t s)
     } else {
         if (act_cols() || lock_held() || !(pg->scope == SC_TRACK || pg->scope == SC_ENGINE || pg->scope == SC_GLOBAL) ||
             pg->graph == GR_EVENTS || pg->graph == GR_SONG || pg->graph == GR_BROWSE || pg->graph == GR_USER ||
-            pg->graph == GR_PATS || (pg->graph == GR_SLICES && k < 2u) || (pg->graph == GR_MOD && k == 0u))
+            kit_page(pg->graph) || pg->graph == GR_KITSLOT || pg->graph == GR_PATS || (pg->graph == GR_SLICES && k < 2u) || (pg->graph == GR_MOD && k == 0u))
             return 0;
         d = page_desc(pg, k, &vp);
     }
@@ -1058,6 +1058,15 @@ static void edit_param(uint32_t slot, int32_t steps)
             ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
         return;
     }
+    if (kit_page(pg->graph)) {                           /* the USER drum kit: KNOB 1 the lane, 2..4 its fields */
+        kit_knob(slot, steps);
+        return;
+    }
+    if (pg->graph == GR_KITSLOT) {                        /* KNOB 1 the slot */
+        if (slot == 0u)
+            kit_slot = (uint8_t)clamp((int32_t)kit_slot + steps, 0, (int32_t)KIT_SLOTS - 1);
+        return;
+    }
     if (fop_page(pg->graph)) {                           /* FM6's operators: KNOB 1 OP, 2..4 its bytes (ui_fm6op.c) */
         fop_knob(slot, steps);
         return;
@@ -1120,6 +1129,10 @@ static void act_do(void)
         return;
     }
 #endif
+    if (cur_page()->graph == GR_KITSLOT) {                /* 1 LOAD, 2 ERASE, 3 SAVE */
+        kit_act(c);
+        return;
+    }
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
@@ -1851,7 +1864,7 @@ static void ui_input(void)
         }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || (pg->graph == GR_SLICES && k < 2u) || fop_page(pg->graph)) {   /* (not an empty
+            || pg->graph == GR_SONG || (pg->graph == GR_SLICES && k < 2u) || fop_page(pg->graph) || kit_page(pg->graph) || pg->graph == GR_KITSLOT) {   /* (not an empty
                                                                                                           * column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;

@@ -468,7 +468,8 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHORD, GR_SLICES, GR_EVENTS,
-       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS };   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
+       GR_FMOP, GR_FMOP2, GR_FMENV, GR_INS,
+       GR_KIT0, GR_KIT1, GR_KIT2, GR_KIT3, GR_KIT4, GR_KIT5, GR_KIT6, GR_KITSLOT };   /* (GR_KIT0..: the USER drum kit, ui_kitedit.c) */   /* (GR_STEPS: SEQ TOOLS' knobs; GR_FMOP..: FM6's operator pages, ui_fm6op.c) */
 
 typedef struct {
     const char *title;
@@ -503,6 +504,14 @@ static const page_t PAGES[] = {
     {"OPERATOR", FAM_EDIT, SC_TRACK, GR_FMOP, {0xFF, 0xFF, 0xFF, 0xFF}},    /* FM6 only: KNOB 1 the operator, then its */
     {"OP ENV", FAM_EDIT, SC_TRACK, GR_FMENV, {0xFF, 0xFF, 0xFF, 0xFF}},     /* bytes of the track's patch (ui_fm6op.c): */
     {"OPERATOR 2", FAM_EDIT, SC_TRACK, GR_FMOP2, {0xFF, 0xFF, 0xFF, 0xFF}}, /* CRS FINE LEVEL / STG RATE LEVEL / MODE DTUN VEL */
+    {"KIT", FAM_EDIT, SC_TRACK, GR_KIT0, {0xFF, 0xFF, 0xFF, 0xFF}},      /* DRUM, KIT USER only: KNOB 1 the lane, then */
+    {"KIT 2", FAM_EDIT, SC_TRACK, GR_KIT1, {0xFF, 0xFF, 0xFF, 0xFF}},     /* its fields three a page (ui_kitedit.c) */
+    {"KIT 3", FAM_EDIT, SC_TRACK, GR_KIT2, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"KIT 4", FAM_EDIT, SC_TRACK, GR_KIT3, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"KIT 5", FAM_EDIT, SC_TRACK, GR_KIT4, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"KIT 6", FAM_EDIT, SC_TRACK, GR_KIT5, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"KIT 7", FAM_EDIT, SC_TRACK, GR_KIT6, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"KIT SLOT", FAM_EDIT, SC_TRACK, GR_KITSLOT, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLOT LOAD ERASE SAVE of the saved kits */
     {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
     {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},

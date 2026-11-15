@@ -656,7 +656,7 @@ static void dv_setup_kit(dv_coef_t *c, const dv_param_t *p)
     }
 }
 
-static void dv_setup(dv_coef_t *c, const dv_param_t *p)
+static __attribute__((noinline)) void dv_setup(dv_coef_t *c, const dv_param_t *p)
 {
     if (DV_KITOF(p->type) - 1u < DV_UKIT)
         dv_setup_kit(c, p);

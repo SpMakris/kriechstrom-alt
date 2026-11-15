@@ -5,7 +5,11 @@ versions are `X.Y`; the package identity is `FM-1_57810002` for every release si
 
 ## [Unreleased]
 
+### Added
+- the DRUM engine's USER kit: eight lanes, every number of the voice tables editable, on the machine (EDIT > KIT 1..7, KIT SLOT) and in the editor protocol (cmds 88-93); seven saved kits K1..K7
+
 ### Changed
+- user presets are 16 (were 32); the freed flash holds the USER kits
 - the installer returns to the official firmware from V16 as well as V15 (newer FM-1s ship with V16)
 - the installer and the editor find an FM-1 whose MIDI port macOS still calls Clipper or SLOOP; the installer says it is
   looking for the FM-1 at once
