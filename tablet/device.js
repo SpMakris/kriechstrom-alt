@@ -223,27 +223,31 @@ export class Device {
     this.steps[t][s.index] = s;
     this.emit("steps", t, s.index);
     return this.rq([CMD.TRACK_STEP, [t, s.index, ...encodeStep(s)]], { key: `s${t}:${s.index}` })
-      .then((a) => { if (!this.link.hasQueued(`s${t}:${s.index}`)) { this.steps[t][s.index] = parseStep(a, true); this.emit("steps", t, s.index); } })
+      .then((a) => { if (!this.link.hasQueued(`s${t}:${s.index}`)) { const was = JSON.stringify(this.steps[t][s.index]); this.steps[t][s.index] = parseStep(a, true); if (JSON.stringify(this.steps[t][s.index]) !== was) this.emit("steps", t, s.index); } })
       .catch((e) => { if (e.message !== "closed") this.say("A step did not reach the machine: " + e.message, "error"); });
   }
 
   async refreshStep(t, i) {
     const { CMD } = this.A;
-    this.steps[t][i] = parseStep(await this.rq([CMD.TRACK_STEP, [t, i]]), true);
+    const now = parseStep(await this.rq([CMD.TRACK_STEP, [t, i]]), true);
+    if (JSON.stringify(now) === JSON.stringify(this.steps[t][i])) return;     /* nothing changed: nothing to announce */
+    this.steps[t][i] = now;
     this.emit("steps", t, i);
   }
 
   async setMix(t, level, mute) {
     const { CMD, req, parse } = this.A, tr = this.tracks[t];
+    const same = tr.level === level && tr.mute === mute;
     tr.level = level; tr.mute = mute;
-    this.emit("tracks");
+    if (!same) this.emit("tracks");
     try { await this.rq(req.trackMix(t, level, mute), { key: "mix" + t }); } catch (e) { if (e.message !== "closed") this.say("Level not sent: " + e.message, "error"); }
   }
 
   async setTrackParam(t, key, id, v) {
     const { req } = this.A;
+    const same = this.tracks[t][key] === v;
     this.tracks[t][key] = v;
-    this.emit("tracks");
+    if (!same) this.emit("tracks");
     try { await this.rq(req.trackParam(t, id, v), { key: `p${t}:${id}` }); } catch (e) { if (e.message !== "closed") this.say("Not sent: " + e.message, "error"); }
   }
   setLen(t, v) { return this.setTrackParam(t, "len", PID.LEN, Math.max(1, Math.min(64, v))); }
@@ -321,8 +325,8 @@ export class Device {
     const { CMD, parse } = this.A;
     if (f.cmd === CMD.CHANGED) {
       const r = parse[CMD.CHANGED](f.a);
-      if (r.scope === 1 && r.id === GID.BPM) { this.global.bpm = r.value; this.emit("global"); }
-      if (r.scope === 1 && r.id === GID.CLK) { this.global.clk = r.value; this.emit("global"); }
+      if (r.scope === 1 && r.id === GID.BPM && this.global.bpm !== r.value) { this.global.bpm = r.value; this.emit("global"); }
+      if (r.scope === 1 && r.id === GID.CLK && this.global.clk !== r.value) { this.global.clk = r.value; this.emit("global"); }
       if (r.scope === 0) this.applyParam(this.sel, r.id, r.value);
     } else {
       const r = parse[CMD.TRACK_CHANGED](f.a);
@@ -332,8 +336,9 @@ export class Device {
   applyParam(t, id, v) {
     const tr = this.tracks[t];
     if (!tr) return;
-    if (id === PID.LEN) tr.len = v; else if (id === PID.DIV) tr.div = v; else if (id === PID.SWG) tr.swing = v;
-    else if (id === PID.GATE) tr.gate = v; else if (id === this.qntzId) tr.qntz = v; else return;
+    const key = id === PID.LEN ? "len" : id === PID.DIV ? "div" : id === PID.SWG ? "swing" : id === PID.GATE ? "gate" : id === this.qntzId ? "qntz" : null;
+    if (!key || tr[key] === v) return;                   /* not shown, or already so: nothing to announce */
+    tr[key] = v;
     this.emit("tracks");
   }
   async reload() {

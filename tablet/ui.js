@@ -14,12 +14,20 @@ export function ic(name) {
   const p = document.createElementNS("http://www.w3.org/2000/svg", "path"); p.setAttribute("d", d); s.append(p);
   return s;
 }
+/* a handler is kept in e.__on and called through one listener per event type, so morph() can give a node it keeps the new handler */
+function on(e, type, fn) {
+  const h = (e.__on ||= {});
+  if (!(type in h)) e.addEventListener(type, (ev) => h[type](ev));
+  h[type] = fn;
+}
+/* mark a node whose listeners were added by hand: morph() never keeps it across a change, it takes the new one */
+export const own = (e) => { e.__own = true; return e; };
 export function el(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
     if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
-    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? "" : v);
+    else if (k.startsWith("on")) on(e, k.slice(2), v); else e.setAttribute(k, v === true ? "" : v);
   }
   for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
   return e;
@@ -53,3 +61,47 @@ addEventListener("pointerdown", (e) => fingers.set(e.pointerId, performance.now(
 for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, (e) => { fingers.delete(e.pointerId); flush(); }, true);
 addEventListener("blur", () => { fingers.clear(); flush(); });
 export function idle(key, fn) { if (down()) waiting.set(key, fn); else fn(); }
+
+/* ---- repaint in place ----
+ * A screen that is redrawn because the machine reported something (or a load finished) must not replace the nodes the user is
+ * touching. repaint(root, build) runs build() as before (it fills root), then makes the live nodes look like what it built:
+ * a node of the same kind is kept and patched (attributes, text, value, handlers), a different one is replaced. */
+const sameKind = (x, y) => {
+  if (x === y) return true;
+  if (y.isConnected || x.nodeType !== y.nodeType) return false;       /* (a node the build reused from the live screen: it moves, it is not patched) */
+  if (x.nodeType !== 1) return true;
+  if (x.nodeName !== y.nodeName || x.getAttribute("type") !== y.getAttribute("type") || x.getAttribute("role") !== y.getAttribute("role")) return false;
+  if (x.__own || y.__own) return !!(x.__own && y.__own) && x.outerHTML === y.outerHTML;
+  return true;
+};
+function patch(x, y) {
+  if (x === y) return;
+  if (x.nodeType !== 1) { if (x.data !== y.data) x.data = y.data; return; }
+  for (const at of [...x.attributes]) if (!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+  for (const at of y.attributes) if (x.getAttribute(at.name) !== at.value) x.setAttribute(at.name, at.value);
+  const h = (x.__on ||= {}), g = y.__on || {};
+  for (const t in g) { if (!(t in h)) x.addEventListener(t, (ev) => h[t](ev)); h[t] = g[t]; }
+  for (const t in h) if (!(t in g)) h[t] = () => {};
+  morphChildren(x, [...y.childNodes]);
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(x.nodeName) && x.type !== "file" && x !== document.activeElement && !x.matches(":active") && x.value !== y.value) x.value = y.value;
+  if (x.nodeName === "INPUT" && (x.type === "checkbox" || x.type === "radio") && x.checked !== y.checked) x.checked = y.checked;
+}
+export function morphChildren(parent, fresh) {
+  const live = [...parent.childNodes];
+  fresh.forEach((y, i) => {
+    const x = live[i];
+    if (!x) parent.append(y);
+    else if (!sameKind(x, y)) x.replaceWith(y);
+    else patch(x, y);
+  });
+  for (let i = fresh.length; i < live.length; i++) live[i].remove();
+}
+export function repaint(root, build) {
+  const live = [...root.childNodes];
+  root.replaceChildren();
+  try { build(); } finally {
+    const fresh = [...root.childNodes];
+    root.replaceChildren(...live);
+    morphChildren(root, fresh);
+  }
+}

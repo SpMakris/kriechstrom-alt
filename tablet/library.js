@@ -1,7 +1,7 @@
 // Library screen: what the machine stores. Sounds (32 user presets), Projects (4 slots), Voices (the FM6 voice bank), Samples (3 user slots).
 // Nothing scrolls: lists are paged.
 
-import { el, ic, askSheet, textSheet } from "./ui.js";
+import { el, ic, askSheet, textSheet, own, repaint } from "./ui.js";
 
 const CATS = ["None", "Bass", "Lead", "Pad", "Pluck", "Keys", "Drum", "FX", "Other"];
 const kib = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0);
@@ -153,7 +153,7 @@ export function LibraryScreen(ctx) {
     st.busy = ""; render();
   }
   const soundFile = el("input", { type: "file", accept: ".json,application/json", hidden: true });
-  soundFile.addEventListener("change", async (e) => {
+  own(soundFile).addEventListener("change", async (e) => {
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     try { const r = readSoundFile(JSON.parse(await f.text())); if (!r.patches.length) throw new Error("None of the sounds in " + f.name + " fit this machine" + (r.skipped ? " (" + r.skipped + " skipped)" : "")); st.sheet = { kind: "soundimport", ...r, first: st.sel, file: f.name }; render(); }
     catch (x) { say(x.message, "error"); }
@@ -235,7 +235,7 @@ export function LibraryScreen(ctx) {
     st.busy = ""; render();
   }
   const bankFile = el("input", { type: "file", accept: ".syx,.SYX,.bin,application/octet-stream", hidden: true });
-  bankFile.addEventListener("change", async (e) => {
+  own(bankFile).addEventListener("change", async (e) => {
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     try {
       const FM6 = A().FM6, r = FM6.parseSysex(new Uint8Array(await f.arrayBuffer()));
@@ -283,7 +283,7 @@ export function LibraryScreen(ctx) {
   const zoneSamples = (z) => { if (!z.trim) return A().takeSample(z.raw, 0, z.raw.length); const [a, b] = A().autoTrim(z.raw); return A().takeSample(z.raw, a, b); };
   const draftBytes = () => st.draft.zones.reduce((n, z) => n + Math.ceil(zoneSamples(z).length / 2), 0);
   const smpFile = el("input", { type: "file", accept: "audio/*,.wav", multiple: true, hidden: true });
-  smpFile.addEventListener("change", async (e) => {
+  own(smpFile).addEventListener("change", async (e) => {
     const files = [...e.target.files]; e.target.value = "";
     for (const f of files) {
       if (st.draft.zones.length >= A().SMP.MAX_ZONES) { say("A slot holds 16 sounds at most", "error"); break; }
@@ -355,7 +355,8 @@ export function LibraryScreen(ctx) {
     return null;
   }
 
-  function render() {
+  const render = () => repaint(root, build);
+  function build() {
     root.replaceChildren();
     if (!d()) return;
     const all = tabs();

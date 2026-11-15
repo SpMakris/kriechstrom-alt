@@ -5,7 +5,7 @@ import { LibraryScreen } from "./library.js";
 import { SettingsScreen } from "./settings.js";
 import { Device } from "./device.js";
 import { MidiClock } from "./clock.js";
-import { el, ic, idle } from "./ui.js";
+import { el, ic, idle, own, repaint } from "./ui.js";
 import { MixScreen } from "./mix.js";
 import { SoundScreen } from "./sound.js";
 import { PerformScreen } from "./perform.js";
@@ -48,7 +48,7 @@ function medianNote(t) {
 
 /* ------------------------------------------------------------ connect screen --- */
 function renderGate(msg) {
-  barEl = boardEl = rowsEl = drawerEl = null;
+  barEl = boardEl = rowsEl = drawerEl = B = null;
   root.replaceChildren(
     el("header", { class: "bar" }, el("span", { class: "brand", text: "KRIECHSTROM" })),
     el("main", { class: "gate" },
@@ -65,7 +65,7 @@ async function start(mock) {
   const d = new Device();
   S.dev = d;
   d.on("status", (t, k) => say(t, k));
-  d.on("tracks", () => { if (!rowsEl) return; idle("tracks", () => { if (S.screen === "mix") screens.mix.refresh(); if (S.drag) { S.dirty = true; return; } renderRows(); if (S.drawer) renderDrawer(); renderBar(); }); });
+  d.on("tracks", () => { if (!rowsEl) return; idle("tracks", () => { if (S.screen === "mix") screens.mix.refresh(); syncRows(); if (S.drawer) renderDrawer(); renderBar(); }); });
   d.on("steps", (t, i) => { if (!rowsEl) return; updateCells(t, i); if (S.drawer && !S.drag && S.sel && S.sel.t === t && (i == null || i === S.sel.i)) idle("drawer", () => { if (S.drawer && !S.drag) renderDrawer(); }); });
   d.on("global", () => { if (barEl && !S.drag) idle("bar", renderBar); });
   d.on("lost", () => { stopClock(); S.dev = null; S.clockOn = false; S.screen = "jam"; renderGate("The FM-1 was disconnected."); });
@@ -78,7 +78,7 @@ async function start(mock) {
 
 /* ------------------------------------------------------------ shell --- */
 function buildShell() {
-  barEl = el("header", { class: "bar" });
+  barEl = el("header", { class: "topbar" }); B = null; buildBar();
   rowsEl = el("div", { class: "rows" });
   drawerEl = el("aside", { class: "drawer", "aria-label": "Step and track options" });
   boardEl = el("main", { class: "board" }, rowsEl, drawerEl);
@@ -100,29 +100,41 @@ function goto(name, arg) {
   if (name === "jam") { renderRows(); renderDrawer(); } else screens[name].open(arg);
 }
 
-function renderBar() {
-  if (!barEl) return;
-  const d = dev(), g = d.global, run = S.clock && S.clock.running;
-  const canClock = g.ok;
-  /* Rebuilding the bar replaces the button under a finger: a press that straddles a rebuild (a machine report arrives every
-   * few tens of ms) never gets its click. So the bar is only rebuilt when something it shows has changed. */
-  const sig = [S.screen, d.tags.krst & 1, run, bpm(), canClock, S.clockOn, S.clock && S.clock.late, S.status.kind].join("|");
-  if (barEl.dataset.sig === sig && barEl.firstChild) return;
-  barEl.dataset.sig = sig;
-  barEl.replaceChildren(...[
-    el("span", { class: "brand", text: "KRIECHSTROM" }),
-    el("nav", { class: "nav", "aria-label": "Screens" }, SCREENS.filter(([k]) => k !== "perform" || (d.tags.krst & 1)).map(([k, label]) => el("button", { "aria-current": String(S.screen === k), onclick: () => goto(k), text: label }))),
-    el("button", { class: "btn play" + (run ? " run" : ""), "aria-label": run ? "Stop" : "Play", disabled: !canClock, onclick: togglePlay }, ic(run ? "stop" : "play")),
+/* The top bar is built once; renderBar() only patches what changed, so no button is ever replaced under a finger. */
+let B = null;
+function buildBar() {
+  const nav = el("nav", { class: "nav", "aria-label": "Screens" });
+  const tabs = {};
+  for (const [k, label] of SCREENS) { tabs[k] = el("button", { onclick: () => goto(k), text: label }); nav.append(tabs[k]); }
+  const play = el("button", { class: "btn play", onclick: togglePlay });
+  const num = document.createTextNode("");
+  const out = el("output", { "aria-label": "Tempo" }, num, el("small", { text: "BPM" }));
+  const clk = el("button", { class: "switch", role: "switch", onclick: toggleClockMode }, el("span", { class: "tr" }), "Tablet clock");
+  const warn = el("span", { class: "clockwarn", text: "Browser is slowing the clock: keep this tab in front" });
+  const hint = el("span", { class: "hint", text: "This firmware does not expose BPM and clock source." });
+  const status = el("span", { class: "status", role: "status", "aria-live": "polite" });
+  barEl.replaceChildren(el("span", { class: "brand", text: "KRIECHSTROM" }), nav, play,
     el("div", { class: "bpm" },
       el("button", { "aria-label": "Slower", onclick: () => setBpm(bpm() - 1), onpointerdown: (e) => holdRepeat(e, () => setBpm(bpm() - 1)) }, ic("minus")),
-      el("output", { "aria-label": "Tempo" }, String(bpm()), el("small", { text: "BPM" })),
+      out,
       el("button", { "aria-label": "Faster", onclick: () => setBpm(bpm() + 1), onpointerdown: (e) => holdRepeat(e, () => setBpm(bpm() + 1)) }, ic("plus")),
       el("button", { class: "tap", "aria-label": "Tap tempo", title: "Tap the beat: the tempo follows", onclick: tapTempo, text: "Tap" })),
-    el("button", { class: "switch", role: "switch", "aria-checked": String(S.clockOn), disabled: !canClock, onclick: toggleClockMode },
-      el("span", { class: "tr" }), "Tablet clock"),
-    S.clockOn && S.clock && S.clock.late ? el("span", { class: "clockwarn", text: "Browser is slowing the clock: keep this tab in front" }) : null,
-    !canClock ? el("span", { class: "hint", text: "This firmware does not expose BPM and clock source." }) : null,
-    el("span", { class: "status" + (S.status.kind === "error" ? " error" : ""), role: "status", "aria-live": "polite", text: S.status.text })].filter(Boolean));
+    clk, warn, hint, status);
+  B = { tabs, play, num, clk, warn, hint, status, run: null };
+}
+function renderBar() {
+  if (!barEl || !B) return;
+  const d = dev(), run = !!(S.clock && S.clock.running), canClock = !!d.global.ok;
+  for (const k in B.tabs) { B.tabs[k].setAttribute("aria-current", String(S.screen === k)); }
+  B.tabs.perform.hidden = !(d.tags.krst & 1);
+  if (B.run !== run) { B.run = run; B.play.replaceChildren(ic(run ? "stop" : "play")); B.play.classList.toggle("run", run); B.play.setAttribute("aria-label", run ? "Stop" : "Play"); }
+  B.play.disabled = !canClock; B.clk.disabled = !canClock;
+  B.num.data = String(bpm());
+  B.clk.setAttribute("aria-checked", String(S.clockOn));
+  B.warn.hidden = !(S.clockOn && S.clock && S.clock.late);
+  B.hint.hidden = canClock;
+  B.status.textContent = S.status.text;
+  B.status.className = "status" + (S.status.kind === "error" ? " error" : "");
 }
 
 /* tap tempo: the mean gap of the last taps (a pause of two seconds starts again) */
@@ -180,12 +192,33 @@ document.addEventListener("visibilitychange", () => { if (S.clock && S.clock.run
 /* ------------------------------------------------------------ rows --- */
 const cellRefs = [[], [], [], []];            /* per track: step index -> cell element(s) for the visible page */
 
+/* renderRows() builds every row: the user changed what is shown (the hand, a page, an octave). What the machine reports goes
+ * through syncRows(): the head's text and states are patched in place, and a row is rebuilt only when its structure changed
+ * (the length, the page, the hand, the drum / note layout), so a report never replaces a node under a finger. */
+const rowKey = [];
+const structKey = (t) => { const tr = trk(t); return [S.hand === t, tr.drum, S.page[t], S.octave[t], tr.len].join("|"); };
 function renderRows() {
   if (!rowsEl) return;
   const d = dev();
   rowsEl.replaceChildren();
-  for (let t = 0; t < d.ntrk; t++) { clampPage(t); rowsEl.append(trackRow(t)); }
+  for (let t = 0; t < d.ntrk; t++) { clampPage(t); rowsEl.append(trackRow(t)); rowKey[t] = structKey(t); }
   updatePlayhead();
+}
+function syncRows() {
+  if (!rowsEl) return;
+  for (let t = 0; t < dev().ntrk; t++) {
+    const row = rowsEl.children[t];
+    if (!row) { renderRows(); return; }
+    if (rowKey[t] !== structKey(t)) { clampPage(t); row.replaceWith(trackRow(t)); rowKey[t] = structKey(t); updatePlayhead(); continue; }
+    const tr = trk(t), hand = S.hand === t;
+    row.classList.toggle("muted", !!tr.mute);
+    const name = row.querySelector(".name"), snd = row.querySelector(".snd"), eng = row.querySelector(".eng"), mute = row.querySelector(".mute"), lv = row.querySelector(".lvl input");
+    if (name) name.setAttribute("aria-label", `Track ${t + 1}, ${tr.name}. ${hand ? "In hand" : "Put in hand"}`);
+    if (snd && snd.textContent !== tr.name) snd.textContent = tr.name;
+    if (eng && eng.textContent !== tr.engineName) eng.textContent = tr.engineName;
+    if (mute) mute.setAttribute("aria-pressed", String(!!tr.mute));
+    if (lv && document.activeElement !== lv && !lv.matches(":active") && +lv.value !== tr.level) lv.value = tr.level;
+  }
 }
 
 function headEl(t) {
@@ -447,7 +480,7 @@ function renderDrawer() {
     el("button", { role: "tab", "aria-selected": String(S.tab === "step"), onclick: () => openDrawer("step"), text: "STEP" }),
     el("button", { role: "tab", "aria-selected": String(S.tab === "track"), onclick: () => openDrawer("track"), text: "TRACK" }),
     el("button", { "aria-label": "Close", onclick: closeDrawer }, ic("close")));
-  drawerEl.replaceChildren(tabs, S.tab === "step" ? stepPanel() : trackPanel());
+  repaint(drawerEl, () => drawerEl.append(tabs, S.tab === "step" ? stepPanel() : trackPanel()));
 }
 
 function range(label, value, min, max, onInput, fmt = String, cls = "") {
@@ -565,7 +598,7 @@ function locksEl(t, i) {
   }
   const pick = el("select", { "aria-label": "Add a lock" }, el("option", { value: "", text: "Add a lock..." }),
     ...(S.lockable || []).map((id) => el("option", { value: id, text: lockName(id) })));
-  pick.addEventListener("change", async () => {
+  own(pick).addEventListener("change", async () => {
     if (pick.value === "") return;
     const id = +pick.value;
     try {
@@ -613,7 +646,7 @@ function autoEl(t) {
     el("button", { "aria-label": "Next", onclick: () => { S.autoPage = Math.min(pages - 1, S.autoPage + 1); renderDrawer(); } }, ic("right"))));
   S.autoAt = Math.min(S.autoAt || 0, trk(t).len - 1);
   const pick = el("select", { "aria-label": "Add an event" }, el("option", { value: "", text: "Add an event..." }), ...(S.lockable || []).map((id) => el("option", { value: id, text: lockName(id) })));
-  pick.addEventListener("change", () => { if (pick.value === "") return; const id = +pick.value; redo(async () => { const cur = d.A.parse[d.A.CMD.TRACK_PARAM](await d.rq(d.A.req.trackParam(t, id))).value; await d.setEvent(t, S.autoAt, id, cur); }); });
+  own(pick).addEventListener("change", () => { if (pick.value === "") return; const id = +pick.value; redo(async () => { const cur = d.A.parse[d.A.CMD.TRACK_PARAM](await d.rq(d.A.req.trackParam(t, id))).value; await d.setEvent(t, S.autoAt, id, cur); }); });
   box.append(el("div", { class: "row" },
     el("div", { class: "stepper", "aria-label": "Step of the new event" },
       el("button", { "aria-label": "Earlier step", onclick: () => { S.autoAt = Math.max(0, S.autoAt - 1); renderDrawer(); } }, ic("minus")),

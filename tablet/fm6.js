@@ -87,36 +87,51 @@ function envGraph({ V, rIdx, lIdx, set, center = false, label }) {
     p.push({ x, y: yOf(V[lIdx + 3]) });
     return p;
   }
-  function draw() {
-    s.replaceChildren(); dot.length = 0;
-    const add = (tag, at) => { const e = document.createElementNS(ns, tag); for (const k in at) e.setAttribute(k, at[k]); s.append(e); return e; };
-    if (center) add("line", { x1: 0, x2: W, y1: yOf(50), y2: yOf(50), class: "mid" });
-    const p = pts();
-    add("polyline", { points: p.map((q) => `${q.x},${q.y}`).join(" "), class: "curve" });
-    add("line", { x1: p[3].x, x2: p[4].x, y1: p[3].y, y2: p[3].y, class: "curve hold" });
-    for (const k of [1, 2, 3, 5]) {
-      const idx = k === 5 ? 3 : k - 1, q = p[k];
-      const g = add("circle", { cx: q.x, cy: q.y, r: 13, class: "dot", tabindex: 0, role: "slider", "aria-label": `${label}, point ${idx + 1}: level ${V[lIdx + idx]}, speed ${V[rIdx + idx]}`, "aria-valuenow": V[lIdx + idx] });
+  /* The curve is built once and only its numbers change: a dot that is being dragged must stay the same node, or the pointer
+   * capture is lost with it (the dot moved once and stopped). */
+  let midLn = null, curveLn = null, holdLn = null;
+  const KEYS = [1, 2, 3, 5];
+  function make(tag, at) { const e = document.createElementNS(ns, tag); for (const k in at) e.setAttribute(k, at[k]); s.append(e); return e; }
+  function build() {
+    if (center) midLn = make("line", { x1: 0, x2: W, class: "mid" });
+    curveLn = make("polyline", { class: "curve" });
+    holdLn = make("line", { class: "curve hold" });
+    KEYS.forEach((k, n) => {
+      const idx = k === 5 ? 3 : k - 1;
+      const g = make("circle", { r: 13, class: "dot", tabindex: 0, role: "slider" });
+      dot[n] = g;
       g.addEventListener("keydown", (e) => {
         const d = { ArrowUp: [0, 3], ArrowDown: [0, -3], ArrowLeft: [-3, 0], ArrowRight: [3, 0] }[e.key];
         if (!d) return; e.preventDefault();
-        set(lIdx + idx, V[lIdx + idx] + d[1]); set(rIdx + idx, V[rIdx + idx] + d[0]); draw(); s.querySelectorAll(".dot")[[1, 2, 3, 5].indexOf(k)].focus();
+        set(lIdx + idx, V[lIdx + idx] + d[1]); set(rIdx + idx, V[rIdx + idx] + d[0]); draw();
       });
       g.addEventListener("pointerdown", (e) => {
         e.preventDefault(); g.setPointerCapture(e.pointerId);
-        const prevX = () => (k === 5 ? pts()[4].x : pts()[k - 1].x);
-        const px0 = prevX();
+        const px0 = k === 5 ? pts()[4].x : pts()[k - 1].x;
+        g.classList.add("hot");
         const move = (ev) => {
           const m = s.getScreenCTM().inverse(), pt = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m);
           set(lIdx + idx, lOf(pt.y));
           set(rIdx + idx, rOf(Math.max(0, pt.x - px0)));
-          const cur = s.querySelector(".dot.hot"); const q = pts()[k];
-          draw(); s.querySelectorAll(".dot")[[1, 2, 3, 5].indexOf(k)].classList.add("hot");
+          draw();
         };
-        const up = () => { g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up); };
+        const up = () => { g.classList.remove("hot"); g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up); };
         g.addEventListener("pointermove", move); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
       });
-    }
+    });
+  }
+  function draw() {
+    if (!curveLn) build();
+    const p = pts();
+    if (midLn) { midLn.setAttribute("y1", yOf(50)); midLn.setAttribute("y2", yOf(50)); }
+    curveLn.setAttribute("points", p.map((q) => `${q.x},${q.y}`).join(" "));
+    holdLn.setAttribute("x1", p[3].x); holdLn.setAttribute("x2", p[4].x); holdLn.setAttribute("y1", p[3].y); holdLn.setAttribute("y2", p[3].y);
+    KEYS.forEach((k, n) => {
+      const idx = k === 5 ? 3 : k - 1, q = p[k], g = dot[n];
+      g.setAttribute("cx", q.x); g.setAttribute("cy", q.y);
+      g.setAttribute("aria-label", `${label}, point ${idx + 1}: level ${V[lIdx + idx]}, speed ${V[rIdx + idx]}`);
+      g.setAttribute("aria-valuenow", V[lIdx + idx]);
+    });
   }
   draw();
   return s;

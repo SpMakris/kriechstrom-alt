@@ -1,6 +1,6 @@
 // Mix screen: four channel strips with a level fader, pan and mute. Tap a name to edit that track's sound.
 
-import { el, idle } from "./ui.js";
+import { el, idle, repaint } from "./ui.js";
 
 /* a fader or pan bar that follows the finger: vertical (level) or horizontal (pan). values min..max, double tap resets. */
 function bar({ vertical, min, max, value, def, label, onInput, fmt = String }) {
@@ -88,7 +88,8 @@ export function MixScreen(ctx) {
    * that straddled a rebuild was lost) */
   const shown = () => JSON.stringify(Array.from({ length: d().ntrk }, (_, t) => { const r = d().tracks[t]; return [r.level, r.mute, r.pan, r.name, r.engineName]; }));
   let sig = "";
-  function render() {
+  const render = () => repaint(root, build);
+  function build() {
     root.replaceChildren();
     if (!d()) return;
     sig = shown();

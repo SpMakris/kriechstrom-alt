@@ -1,7 +1,7 @@
 // Song screen: the song chain. A song is up to 16 sections; each section says which saved project (A to D, or silence) each of the
 // four tracks plays and how many times it repeats. Firmware before 1.2 has rows (one project per row): shown as one lane.
 
-import { el, ic, idle } from "./ui.js";
+import { el, ic, idle, repaint } from "./ui.js";
 
 const SLOT = ["A", "B", "C", "D", "-"];
 const RC = { 1: "The song has a section the machine cannot play.", 2: "The machine is busy. Try again.", 3: "Project A is empty. Save a project there first.", 4: "Project B is empty. Save a project there first.", 5: "Project C is empty. Save a project there first.", 6: "Project D is empty. Save a project there first." };
@@ -112,7 +112,8 @@ export function SongScreen(ctx) {
         el("button", { class: "btn", onclick: () => edit((x) => { x.splice(i, 1); st.sel = Math.max(0, Math.min(i, x.length - 1)); }) }, "Delete")));
   }
 
-  function render() {
+  const render = () => repaint(root, build);
+  function build() {
     root.replaceChildren();
     if (!d()) return;
     if (!d().tags.chain) { root.append(el("div", { class: "empty" }, el("h2", { text: "No song on this firmware" }), el("p", { text: "This machine's firmware does not report the song chain." }))); return; }

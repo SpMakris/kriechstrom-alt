@@ -1,7 +1,7 @@
 // Settings screen: everything the machine's own menu holds (the machine describes it, so the list follows the firmware), the CUSTOM colour
 // palette, MIDI learn, a full backup and restore, and facts about the firmware. Nothing scrolls: each group is a tab.
 
-import { el, ic, askSheet } from "./ui.js";
+import { el, ic, askSheet, own, repaint } from "./ui.js";
 import { Ext, KRST } from "./ext.js";
 
 const RC_SAVE = { 3: "Applied, but not saved: the machine has no flash or the write failed.", 4: "Applied. It is saved when the transport stops." };
@@ -157,7 +157,7 @@ export function SettingsScreen(ctx) {
     st.busy = ""; render();
   }
   const backFile = el("input", { type: "file", accept: ".json,application/json", hidden: true });
-  backFile.addEventListener("change", async (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; st.sheet = { restore: await f.text(), name: f.name }; render(); });
+  own(backFile).addEventListener("change", async (e) => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; st.sheet = { restore: await f.text(), name: f.name }; render(); });
   function backupTab() {
     const can = (d().info.backupCaps || 0) & 1, put = (d().info.backupCaps || 0) & 2;
     return el("div", { class: "palbody" },
@@ -212,7 +212,8 @@ export function SettingsScreen(ctx) {
     return null;
   }
 
-  function render() {
+  const render = () => repaint(root, build);
+  function build() {
     root.replaceChildren();
     if (!d()) return;
     const all = st.items ? tabList() : [];

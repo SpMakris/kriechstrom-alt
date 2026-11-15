@@ -1,7 +1,7 @@
 // Sound screen: the parameters of one track's sound, grouped the way the machine groups them, one group per tab.
 // Engine and preset are chosen from sheets. Nothing scrolls: each tab holds at most a screenful.
 
-import { el, ic } from "./ui.js";
+import { el, ic, own, repaint } from "./ui.js";
 import { Fm6Screen } from "./fm6.js";
 import { accident } from "./tools.js";
 import { Ext, KRST } from "./ext.js";
@@ -193,7 +193,7 @@ export function SoundScreen(ctx) {
     const stepSeg = el("div", { class: "seg", role: "group", "aria-label": "Step size" }, [64, 512, 4096].map((s) => el("button", { "aria-pressed": String(sl.step === s), text: s + " samples", onclick: () => { sl.step = s; render(); } })));
     const slider = el("input", { type: "range", min: lo, max: Math.max(lo, hi), step: 1, value: pos[j], "aria-label": "Start of slice " + (j + 1), disabled: hi < lo, onchange: (ev) => set(+ev.target.value) });
     const out = el("output", { text: pos[j] + " (" + Math.round((pos[j] / D.len) * 100) + "%)" });
-    slider.addEventListener("input", () => { out.textContent = slider.value + " (" + Math.round((slider.value / D.len) * 100) + "%)"; });
+    own(slider).addEventListener("input", () => { out.textContent = slider.value + " (" + Math.round((slider.value / D.len) * 100) + "%)"; });
     return el("div", { class: "slices" },
       el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "USR" + (sl.slot + 1) + ": " + n + " slices" + (D.man ? " (yours)" : " (automatic)") }), el("output", { text: D.len + " samples" })), chips, bar),
       el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "Slice " + (j + 1) + " starts at" }), out), slider,
@@ -211,7 +211,7 @@ export function SoundScreen(ctx) {
     const rail = el("div", { class: "rail", role: "tablist", "aria-label": "Sound groups" }, all.map((x) =>
       el("button", { role: "tab", "aria-selected": String(x.k === st.tab), "aria-pressed": String(x.k === st.tab), text: x.label, onclick: () => { st.tab = x.k; showTab(); } })));
     let content;
-    if (tab.fm6) content = fm6.el;
+    if (tab.fm6) content = own(fm6.el);
     else if (st.loading) content = el("div", { class: "empty" }, el("p", { text: "Reading..." }));
     else if (tab.slices) content = slicesEl();
     else if (tab.mod != null) {
@@ -259,7 +259,8 @@ export function SoundScreen(ctx) {
       ...grid(options(x).map((o) => ({ v: o, text: text(x, o) })), v, (o) => { setVal(s, id, o); st.sheet = null; render(); }, 18));
   }
 
-  function render() {
+  const render = () => repaint(root, build);
+  function build() {
     root.replaceChildren();
     if (!d()) return;
     root.append(...[head(), body(), sheet()].filter(Boolean));
