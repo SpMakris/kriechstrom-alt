@@ -190,6 +190,8 @@ static void uk_fit(dv_ulane_t *u)
         v = v < m->lo ? m->lo : v > m->hi ? m->hi : v;
         uk_store(u, f, v);
     }
+    for (f = UF_V0; f < UF_ATK; f++)                     /* (the metal and noise sum: uk_pair, for a lane read from flash) */
+        uk_store(u, f, uk_pair(u, f, u->k.v[f - UF_V0]));
 }
 
 static void uk_load_run(uint32_t lane, uint32_t run);

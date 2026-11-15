@@ -286,6 +286,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 
 #include "up_fm6.c"                            /* the FM6 user presets' patches: the same kind of store */
 #include "fm6_vbank.c"                         /* FM6's voice bank (SLOT B1..B32, 1.4.1) */
+#include "drum_ukit_store.c"                   /* the USER drum kits (the second bank's sectors) */
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
@@ -295,6 +296,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
     upf_boot();                                  /* (after the banks: it may move the retired FM6 bank's patches) */
+    uks_boot();                                  /* the USER drum kits, and the working kit back */
     fvb_boot();                                  /* FM6's voice bank: a staged one finished, its voices */
 #ifdef FELUCCA_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)

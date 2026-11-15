@@ -116,7 +116,7 @@ static void mig_rec(up_bank_t *b, uint32_t i, uint32_t engine, int16_t slot, cha
     up_set_value(r, P_E0, (int16_t)(tag & 7));          /* (each record another sound) */
 }
 
-/* a 1.0.2 flash: user presets on B3 (slot 1), F2 (2), B5 empty (3), DRUM (4), B1 (18); the bank written twice */
+/* a 1.0.2 flash: user presets on B3 (slot 1), F2 (2), B5 empty (3), DRUM (4), B1 (10); the bank written twice */
 static void mig_setup(void)
 {
     static up_bank_t b[2];
@@ -127,7 +127,7 @@ static void mig_setup(void)
     mig_rec(&b[0], 1, ENGI_FM6, 1, 'B');
     mig_rec(&b[0], 2, ENGI_FM6, FM6_NFACTORY + 4, 'C');
     mig_rec(&b[0], 3, ENGI_DRUM, FM6_NFACTORY + 2, 'D');
-    mig_rec(&b[1], 1, ENGI_FM6, FM6_NFACTORY + 0, 'E');
+    mig_rec(&b[0], 9, ENGI_FM6, FM6_NFACTORY + 0, 'E');
     st_save(OBJ_UPRESET0, &b[0], sizeof b[0]);
     st_save(OBJ_UPRESET0 + 1, &b[1], sizeof b[1]);
     memset(&mig_bank, 0, sizeof mig_bank);
@@ -146,11 +146,11 @@ static void mig_boot(void)                               /* a power-on: RAM lost
     up_boot();
 }
 
-/* the presets play what 1.0.2 played: slot 1 the newest B3, 18 B1, 2 F2, 3 init (an empty B5), DRUM none */
+/* the presets play what 1.0.2 played: slot 1 the newest B3, 10 B1, 2 F2, 3 init (an empty B5), DRUM none */
 static int mig_ok(void)
 {
     uint8_t pk[FM6_PACKED];
-    return !upf_get(0, pk) && !memcmp(pk + 118, "NEW B3    ", 10) && !upf_get(17, pk) &&
+    return !upf_get(0, pk) && !memcmp(pk + 118, "NEW B3    ", 10) && !upf_get(9, pk) &&
            !memcmp(pk + 118, "NEW B1    ", 10) && upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk);
 }
 
@@ -206,15 +206,15 @@ static int mig_test(void)
     trk[song.sel].eng_req = ENGI_FM6;
     fm6_load_slot(song.sel, 3);
     fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u + 3u);   /* the preset bank's write passes, the patches' fails */
-    up_store(20, "CUT");
+    up_store(12, "CUT");
     fail_after = -1;
     mig_boot();
     bad += check("a cut while a preset's patch is written: the others kept, that preset without one",
-                 mig_ok() && upf_get(20, pk));
-    up_store(20, "SAVED");
+                 mig_ok() && upf_get(12, pk));
+    up_store(12, "SAVED");
     mig_boot();
     bad += check("saved again: its patch, and the bank's sectors now both hold the patches object",
-                 mig_ok() && !upf_get(20, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) &&
+                 mig_ok() && !upf_get(12, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) &&
                      ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && ((st_hdr_t *)(nor + 0xFE000))->type == OBJ_UPFM6);
     memset(nor, 0xFF, sizeof nor);                        /* a device that never had a bank: nothing written */
     before = erases;
@@ -419,6 +419,64 @@ static int autosave_test(void)
                (unsigned)(as_erases / 2u));
         bad += check("autosave wear, worst case: at most one write a minute (480 in 8 h)", as_erases <= 8u * 60u + 1u);
     }
+    return bad;
+}
+
+/* ---- the USER drum kits in flash (drum_ukit_store.c) ---- */
+static void uks_power(void)                              /* a power-on: RAM lost, the kits from flash */
+{
+    memset(dv_ukit, 0, sizeof dv_ukit);
+    memset(&uks, 0, sizeof uks);
+    uk_ready = 0;
+    uks_boot();
+}
+
+static int uks_test(void)
+{
+    int bad = 0, ok;
+    uint32_t i;
+    int32_t g;
+    reset();
+    memset(nor, 0xFF, sizeof nor);
+    uks_power();
+    bad += check("kits: a blank flash: the 80 kit is the working kit, no kit saved", uk_ready && !uks.used && uk_get(0, UF_RUN) == (int32_t)DV_KIT[0][0].run);
+    g = uk_get(1, UF_GAIN);
+    uk_set(1, UF_GAIN, g > 100 ? g - 50 : g + 50);
+    bad += check("kits: SAVE K3 writes the working kit under its name", uks_save(2, "Mine") == 0 && uks_valid(2));
+    uk_set(1, UF_GAIN, g);
+    uks_power();
+    bad += check("kits: K3 and its name survive a power-on; the working kit is not written yet", uks_valid(2) && !strcmp(uks.r[2].name, "Mine") && !((uks.used >> UKS_SAVED) & 1u));
+    bad += check("kits: LOAD K3 restores the saved number", uks_load(2) == 0 && uk_get(1, UF_GAIN) != g && uks_load(3) == 1);
+    fm1_ms = 10000; uks_poll();                          /* (the poll notes the change) */
+    fm1_ms += 1000; uks_poll();
+    bad += check("kits: not written before the kit has been still for 2 s", !((uks.used >> UKS_SAVED) & 1u));
+    fm1_ms += 1500; uks_poll();
+    uks_power();
+    bad += check("kits: the working kit is written once still, restored at power-on", ((uks.used >> UKS_SAVED) & 1u) && uk_get(1, UF_GAIN) != g);
+    fail_after = 2;
+    ok = uks_save(4, "Cut") == 2;
+    fail_after = -1;
+    uks_power();
+    bad += check("kits: a flash error at SAVE: reported, K5 not there after the next boot", ok && !uks_valid(4) && uks_valid(2));
+    bad += check("kits: bad slot or name refused", uks_save(7, "X") == 1 && uks_save(0, "") == 1 && uks_save(0, "") == 1);
+    bad += check("kits: ERASE removes the kit, and again says none", uks_erase(2) == 0 && uks_erase(2) == 1);
+    /* flash holds anything: every field of every lane lands in its range, a name or a header of garbage reads as none */
+    for (i = 0; i < sizeof uks; i++) ((uint8_t *)&uks)[i] = (uint8_t)(i * 37u + 11u);
+    uks.magic = UKS_MAGIC; uks.ver = 1; uks.n = UKS_N; uks.used = 0xFFu;
+    uks_apply(&uks.r[UKS_SAVED]);
+    ok = 1;
+    for (i = 0; i < DV_NLANE; i++)
+        ok &= uk_get(i, UF_RUN) >= 0;
+    bad += check("kits: garbage in a record is fitted into ranges and plays", ok);
+    memset(nor, 0xFF, sizeof nor);
+    {
+        static up_bank_t old; /* 1.0.x: user presets 17..32 */
+        memset(&old, 0, sizeof old);
+        old.magic = UP_BANK_MAGIC; old.rsize = sizeof(up_rec_t); old.nslot = UP_PER_BANK;
+        st_save(OBJ_UPRESET0 + 1, &old, sizeof old);
+    }
+    uks_power();
+    bad += check("kits: an old second bank of presets in the pair reads as no kits", !uks.used);
     return bad;
 }
 
@@ -675,10 +733,10 @@ int main(void)
     r.np = P_COUNT;
     memcpy(r.name, "First", 6);
     erase_error = 1;
-    bank = up_bank[1];
-    ok = up_put(17, &r) == 2;
+    bank = up_bank[0];
+    ok = up_put(13, &r) == 2;
     erase_error = 0;
-    bad += check("failed first preset save restores empty bank", ok && !memcmp(&up_bank[1], &bank, sizeof bank));
+    bad += check("failed first preset save restores empty bank", ok && !memcmp(&up_bank[0], &bank, sizeof bank));
     bad += check("preset initial save", up_put(3, &r) == 0 && up_used(3));
     bank = up_bank[0];
     before = up_gen;
@@ -724,6 +782,7 @@ int main(void)
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
     bad += mig_test();
+    bad += uks_test();
     bad += autosave_test();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;

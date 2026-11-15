@@ -82,8 +82,8 @@ int main(void)
         bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
                                                        !memcmp(&r, &keep, sizeof r));
     }
-    n = put_frame(a, 32, 0, "X", 0);
-    bad += check("UP_PUT slot 32 -> args", up_parse(a, n, &r, &slot) == 1);
+    n = put_frame(a, 16, 0, "X", 0);
+    bad += check("UP_PUT slot 16 -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, its load converts) */
@@ -100,44 +100,42 @@ int main(void)
     bad += check("UP_PUT 12-char name ok", up_parse(a, n, &r, &slot) == 0 && !memcmp(r.name, "TWELVE CHARS", 12));
     {
         char nm[13];
-        *up_rec(31) = r;
-        memcpy(up_rec(31)->name, "Low case", 9);
-        up_name(31, nm);
+        *up_rec(15) = r;
+        memcpy(up_rec(15)->name, "Low case", 9);
+        up_name(15, nm);
         bad += check("name shown upper case", !strcmp(nm, "LOW CASE"));
     }
 
     /* bank round trip through storage.c */
-    n = put_frame(a, 17, 3, "Keys", 7);
+    n = put_frame(a, 9, 3, "Keys", 7);
     up_parse(a, n, &r, &slot);
-    up_bank[1].magic = UP_BANK_MAGIC;
-    up_bank[1].rsize = sizeof(up_rec_t);
-    up_bank[1].nslot = UP_PER_BANK;
-    *up_rec(17) = r;
+    up_bank[0].magic = UP_BANK_MAGIC;
+    up_bank[0].rsize = sizeof(up_rec_t);
+    up_bank[0].nslot = UP_PER_BANK;
+    *up_rec(9) = r;
     bad += check("bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
-    bad += check("bank save", st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]) == 0);
+    bad += check("bank save", st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]) == 0);
     memset(up_bank, 0, sizeof up_bank);
-    len = st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-    up_bank_check(1, len);
-    got = *up_rec(17);
-    bad += check("bank load: the record is back", up_used(17) && !memcmp(&got, &r, sizeof r));
-    bad += check("other slots empty", !up_used(16) && !up_used(18) && !up_used(0));
     len = st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
     up_bank_check(0, len);
-    bad += check("bank 0 never written -> empty", len < 0 && !up_used(0) && up_bank[0].magic == 0);
+    got = *up_rec(9);
+    bad += check("bank load: the record is back", up_used(9) && !memcmp(&got, &r, sizeof r));
+    bad += check("other slots empty", !up_used(8) && !up_used(10) && !up_used(0));
+    bad += check("16 user presets: one bank, the second pair (0xDE000, the USER kits) is not the presets'", UP_SLOTS == 16u && UP_SLOTS / UP_PER_BANK == 1u);
     bad += check("banks in 0xDC000..0xDFFFF", st_sector(OBJ_UPRESET0, 0) == 0xDC000u &&
                                                    st_sector(OBJ_UPRESET0 + 1, 1) == 0xDF000u &&
                                                    st_sector(OBJ_PROJECT0 + 3, 1) + 4096u <= 0xA0000u);
-    up_bank[1].rsize = 190;                                 /* another record layout */
-    up_bank_check(1, (int)sizeof up_bank[1]);
-    bad += check("bank with another record size -> empty", !up_used(17));
-    up_bank[1].magic = UP_BANK_MAGIC;
-    up_bank[1].rsize = sizeof(up_rec_t);
-    up_bank[1].nslot = UP_PER_BANK;
-    *up_rec(17) = r;
-    up_rec(17)->ver = UP_VER_GRID + 1u;
-    bad += check("record with another version -> empty", !up_used(17));
-    up_rec(17)->ver = UP_VER_GRID;
-    bad += check("a version 3 record (a drum grid) is used", up_used(17));
+    up_bank[0].rsize = 190;                                 /* another record layout */
+    up_bank_check(0, (int)sizeof up_bank[0]);
+    bad += check("bank with another record size -> empty", !up_used(9));
+    up_bank[0].magic = UP_BANK_MAGIC;
+    up_bank[0].rsize = sizeof(up_rec_t);
+    up_bank[0].nslot = UP_PER_BANK;
+    *up_rec(9) = r;
+    up_rec(9)->ver = UP_VER_GRID + 1u;
+    bad += check("record with another version -> empty", !up_used(9));
+    up_rec(9)->ver = UP_VER_GRID;
+    bad += check("a version 3 record (a drum grid) is used", up_used(9));
 
     /* a drum grid by UP_PUT: kind 1, then bit 7 of each step's hits (bit 0) and accents (bit 1) */
     {
@@ -174,11 +172,11 @@ int main(void)
                                                          !memcmp(&got, &keep, sizeof got));
         }
         up_parse(g, m, &got, &slot);
-        *up_rec(20) = got;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
+        *up_rec(12) = got;
+        st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
         memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        bad += check("a grid record: bank round trip", up_used(20) && !memcmp(up_rec(20), &got, sizeof got));
+        up_bank_check(0, st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]));
+        bad += check("a grid record: bank round trip", up_used(12) && !memcmp(up_rec(12), &got, sizeof got));
     }
 
     /* PHYS MODEL DRUM (before 1.0) -> the DRUM engine: from flash (a record of an older layout too), by UP_PUT */
@@ -195,17 +193,17 @@ int main(void)
             up_set_value(&m, P_E0 + k, (int16_t)(k ? 9 : 2));
             up_set_value(&o, o.np - 8u + k, OLD[k]);
         }
-        *up_rec(16) = d;
-        *up_rec(17) = m;
-        *up_rec(18) = o;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
+        *up_rec(8) = d;
+        *up_rec(9) = m;
+        *up_rec(10) = o;
+        st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
         memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        ok = up_used(16) && up_rec(16)->engine == ENGI_DRUM && up_used(17) && up_rec(17)->engine == ENGI_PHYS &&
-             !memcmp(up_rec(17)->p, m.p, sizeof m.p) && up_used(18) && up_rec(18)->engine == ENGI_DRUM &&
-             up_rec(16)->ver == UP_VER;
+        up_bank_check(0, st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]));
+        ok = up_used(8) && up_rec(8)->engine == ENGI_DRUM && up_used(9) && up_rec(9)->engine == ENGI_PHYS &&
+             !memcmp(up_rec(9)->p, m.p, sizeof m.p) && up_used(10) && up_rec(10)->engine == ENGI_DRUM &&
+             up_rec(8)->ver == UP_VER;
         for (k = 0; k < 8u; k++)
-            ok &= up_value(up_rec(16), P_E0 + k) == NEW[k] && up_value(up_rec(18), o.np - 8u + k) == NEW[k];
+            ok &= up_value(up_rec(8), P_E0 + k) == NEW[k] && up_value(up_rec(10), o.np - 8u + k) == NEW[k];
         bad += check("bank load: PHYS DRUM -> DRUM engine, MEMB kept", ok);
         n = put_frame(a, 3, ENGI_PHYS, "Old kit", 0);
         for (k = 0; k < 8u; k++) {                          /* E0..E7 of the frame: OLD */
@@ -232,23 +230,23 @@ int main(void)
             up_set_value(&m, P_E0 + k, (int16_t)(k ? 30 + k : 2));   /* FLUTE: stays SAMPLE */
             up_set_value(&o, o.np - 8u + k, (int16_t)(k ? 30 + k : SMP_SET_PERC));
         }
-        *up_rec(19) = d;
-        *up_rec(20) = m;
-        *up_rec(21) = o;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
+        *up_rec(11) = d;
+        *up_rec(12) = m;
+        *up_rec(13) = o;
+        st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
         memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        ok = up_used(19) && up_rec(19)->engine == ENGI_DRUM && up_used(20) && up_rec(20)->engine == ENGI_SAMPLE &&
-             !memcmp(up_rec(20)->p, m.p, sizeof m.p) && up_used(21) && up_rec(21)->engine == ENGI_DRUM &&
-             !memcmp(up_rec(19)->note, d.note, sizeof d.note) && !memcmp(up_rec(19)->flags, d.flags, sizeof d.flags);
+        up_bank_check(0, st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]));
+        ok = up_used(11) && up_rec(11)->engine == ENGI_DRUM && up_used(12) && up_rec(12)->engine == ENGI_SAMPLE &&
+             !memcmp(up_rec(12)->p, m.p, sizeof m.p) && up_used(13) && up_rec(13)->engine == ENGI_DRUM &&
+             !memcmp(up_rec(11)->note, d.note, sizeof d.note) && !memcmp(up_rec(11)->flags, d.flags, sizeof d.flags);
         for (k = 0; k < 8u; k++)
-            ok &= up_value(up_rec(19), P_E0 + k) == KIT[k] && up_value(up_rec(21), o.np - 8u + k) == KIT[k];
+            ok &= up_value(up_rec(11), P_E0 + k) == KIT[k] && up_value(up_rec(13), o.np - 8u + k) == KIT[k];
         for (k = 0; k < P_E0; k++)
-            ok &= up_value(up_rec(19), k) == up_value(&d, k);
+            ok &= up_value(up_rec(11), k) == up_value(&d, k);
         bad += check("bank load: SAMPLE PERC -> DRUM kit, FLUTE kept", ok);
-        before = *up_rec(19);
-        up_migrate(up_rec(19));
-        bad += check("  migrated again: as it is", !memcmp(up_rec(19), &before, sizeof before));
+        before = *up_rec(11);
+        up_migrate(up_rec(11));
+        bad += check("  migrated again: as it is", !memcmp(up_rec(11), &before, sizeof before));
         n = put_frame(a, 3, ENGI_SAMPLE, "Old perc", 0);
         {
             uint32_t at = 3u + 8u + 1u + 2u * P_E0, u = (uint32_t)(SMP_SET_PERC + 8192);   /* E0 of the frame: SET 4 */
@@ -361,23 +359,23 @@ int main(void)
     }
     {   /* 1.2 (Discussion #90): the category, the record's last byte (UP_CAT_AT), outside its values; UP_PUT's optional
          * last byte; through a bank's flash round trip; a record of before reads its engine's; versions 2 / 3 converted */
-        n = put_frame(a, 17, 0, "CAT", 0);
+        n = put_frame(a, 9, 0, "CAT", 0);
         a[n++] = 0;
         for (i = 0; i < 16u; i++) a[n++] = 0;
         a[n++] = CAT_KEYS;
         ok = !up_parse(a, n, &r, &slot) && up_cat_of(&r) == CAT_KEYS && UP_CAT_AT >= P_COUNT && r.np == P_COUNT;
         a[n - 1u] = CAT_N;
         ok &= up_parse(a, n, &got, &slot) == 1;
-        n = put_frame(a, 17, ENGI_DRUM, "KIT", 0);
+        n = put_frame(a, 9, ENGI_DRUM, "KIT", 0);
         ok &= !up_parse(a, n, &got, &slot) && up_cat_of(&got) == CAT_DRUM && !got.packed[UP_CAT_AT];
         bad += check("category: UP_PUT's last byte, none = the engine's", ok);
-        memset(&up_bank[1], 0, sizeof up_bank[1]);
-        up_bank[1].magic = UP_BANK_MAGIC; up_bank[1].rsize = sizeof(up_rec_t); up_bank[1].nslot = UP_PER_BANK;
-        up_bank[1].r[1] = r;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-        memset(&up_bank[1], 0, sizeof up_bank[1]);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        bad += check("category: kept through the bank on flash", up_used(17) && up_cat_of(up_rec(17)) == CAT_KEYS);
+        memset(&up_bank[0], 0, sizeof up_bank[0]);
+        up_bank[0].magic = UP_BANK_MAGIC; up_bank[0].rsize = sizeof(up_rec_t); up_bank[0].nslot = UP_PER_BANK;
+        up_bank[0].r[9] = r;
+        st_save(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
+        memset(&up_bank[0], 0, sizeof up_bank[0]);
+        up_bank_check(0, st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]));
+        bad += check("category: kept through the bank on flash", up_used(9) && up_cat_of(up_rec(9)) == CAT_KEYS);
         memset(&r, 0, sizeof r);
         r.used = UP_USED; r.ver = 3; r.engine = ENGI_DRUM; r.np = 60;
         memcpy(r.name, "GRID", 4);

@@ -59,7 +59,7 @@ typedef struct {
     uint32_t rsv;
     upf_ent_t e[UP_SLOTS];
 } upf_t;
-_Static_assert(sizeof(upf_t) == 3728u, "user preset FM6 patches layout (at most ST_PAYLOAD_MAX, 3840)");
+_Static_assert(sizeof(upf_t) == 16u + UP_SLOTS * 116u, "user preset FM6 patches layout (at most ST_PAYLOAD_MAX, 3840)");
 _Static_assert(sizeof(up_rec_t) == 192u && sizeof(((up_rec_t *)0)->name) == 12u, "upf_tag: the name at bytes 4..15");
 static upf_t upf __attribute__((section(".pool")));
 
@@ -177,12 +177,32 @@ static uint32_t upf_migrate(const fm6_bank_t *b)
     return moved;
 }
 
+/* the object as 32 user presets had it (before KRIECHSTROM: 16 + 32 x 116 bytes): the first 16 entries are the same bytes */
+#define UPF_OLD_SLOTS 32u
+#if FELUCCA_FLASH
+static int upf_load_old(void)
+{
+    static uint8_t raw[16u + UPF_OLD_SLOTS * 116u] __attribute__((section(".pool")));
+    const upf_t *o = (const upf_t *)raw;
+    if (st_load(OBJ_UPFM6, raw, sizeof raw) != (int)sizeof raw || o->magic != UPF_MAGIC || o->ver != 1u || o->nslot != UPF_OLD_SLOTS)
+        return 0;
+    memcpy(&upf, raw, sizeof upf);                   /* (header and the first UP_SLOTS entries) */
+    upf.nslot = UP_SLOTS;
+    upf.used &= (1u << UP_SLOTS) - 1u;
+    return 1;
+}
+#endif
+
 static void upf_boot(void)                       /* up_boot, after the user preset banks */
 {
 #if FELUCCA_FLASH
     st_hdr_t h;
     if (flash_ok && st_load(OBJ_UPFM6, &upf, sizeof upf) == (int)sizeof upf && upf_valid(&upf))
         return;
+    if (flash_ok && upf_load_old()) {                /* a 32-slot object: its first 16 kept, written back as 16 */
+        upf_save();
+        return;
+    }
     upf_empty();
     if (flash_ok && st_current(OBJ_FM6BANK, &h) >= 0 && h.len == sizeof(fm6_bank_t) &&
         fm6_bank_valid((const fm6_bank_t *)st_buf)) {

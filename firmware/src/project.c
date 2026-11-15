@@ -1288,6 +1288,7 @@ static void settings_poll(void)
 #if FELUCCA_SLICE
     slc_store_poll();                              /* SLICE's slices edited on the SLICES page */
 #endif
+    uks_poll();                                    /* the working USER drum kit, once it is still */
     if (!persist_pending || !flash_ok || transport_busy() ||
         (persist_pending == 2u && (uint32_t)(fm1_ms - persist_retry_ms) < 1000u))
         return;

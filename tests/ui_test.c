@@ -1405,17 +1405,17 @@ static int test_favorites(void)
     preset_pos(&total);
     bad += check("LIST ALL restores the full browser without an implicit load", !favorites.filter && total > 1 &&
                  !memcmp(TSEL, &before, sizeof before));
-    up_store(31, "Favorite");
-    up_load(31);
+    up_store(15, "Favorite");
+    up_load(15);
     turn(EN_K3, 1);
-    bad += check("user slot 32 has its own favorite reference", favorite_has(NENGINES, 31) && preset_favorite());
-    up_store(31, "Renamed");
-    bad += check("overwriting or renaming a user slot retains its star", favorite_has(NENGINES, 31));
-    up_put(31, 0);
+    bad += check("user slot 16 has its own favorite reference", favorite_has(NENGINES, 15) && preset_favorite());
+    up_store(15, "Renamed");
+    bad += check("overwriting or renaming a user slot retains its star", favorite_has(NENGINES, 15));
+    up_put(15, 0);
     bad += check("successful erasure removes the user slot star and source label",
-                 !favorite_has(NENGINES, 31) && !up_used(31) && !TSEL->user);
-    up_store(31, "New sound");
-    bad += check("reusing the erased slot does not restore its old star", !favorite_has(NENGINES, 31));
+                 !favorite_has(NENGINES, 15) && !up_used(15) && !TSEL->user);
+    up_store(15, "New sound");
+    bad += check("reusing the erased slot does not restore its old star", !favorite_has(NENGINES, 15));
     return bad;
 }
 
