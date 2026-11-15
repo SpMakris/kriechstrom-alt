@@ -369,6 +369,7 @@ export class Device {
     try { for (let t = 0; t < this.ntrk; t++) { await this.readTrackParams(t); await this.readName(t); } this.emit("tracks"); for (let t = 0; t < this.ntrk; t++) await this.loadSteps(t, 0, Math.max(16, this.tracks[t].loaded)); }
     catch (e) { /* closed */ }
     this.reloading = false;
+    this.emit("reloaded");                              /* (the machine loaded another preset or project: what a screen read of it is old) */
   }
   /* STEP_CHANGED is pushed for the selected track only: re-read the others' visible steps now and then */
   async poll() {

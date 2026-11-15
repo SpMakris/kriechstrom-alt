@@ -34,7 +34,7 @@ function tabsFor(d, t) {
 
 export function SoundScreen(ctx) {
   const root = el("section", { class: "sound" });
-  const st = { t: 0, tab: "tone", vals: {}, sheet: null, page: 0, loading: false, token: 0, favs: {}, favOnly: false };
+  const st = { t: 0, tab: "tone", vals: {}, sheet: null, page: 0, loading: false, pend: {}, token: 0, favs: {}, favOnly: false };
   const d = () => ctx.dev();
   const A = () => d().A;
   const fm6 = Fm6Screen(ctx);   /* the FM6 engine's own editor: it is the first tab of an FM6 track */
@@ -45,11 +45,15 @@ export function SoundScreen(ctx) {
   /* a knob turned on the machine: the control shows it (the push says the track's engine parameter or the global that changed) */
   let shown = false;
   function onParam(s, t, id, v) {
-    if (!shown || st.loading || (s === 0 && t !== st.t) || !((vkey(s, id)) in st.vals) || st.vals[vkey(s, id)] === v) return;
+    if (!shown || (s === 0 && t !== st.t)) return;
+    if (st.loading) { st.pend[vkey(s, id)] = v; return; }          /* (still reading: it may have read the old value; applied when the read ends) */
+    if (!((vkey(s, id)) in st.vals) || st.vals[vkey(s, id)] === v) return;
     st.vals[vkey(s, id)] = v;
     idle("sound", render);
   }
   d().on("param", onParam);
+  /* the machine loaded another preset or project (RELOAD), or its engine changed: read this track again */
+  d().on("reloaded", () => { if (shown && !st.loading) idle("sound-reload", () => { if (shown && !st.loading) pick(Math.min(st.t, d().ntrk - 1)); }); });
 
   async function open(t) {
     shown = true;
@@ -71,7 +75,7 @@ export function SoundScreen(ctx) {
     const { tab, list } = ids();
     if (tab.fm6) { st.loading = false; render(); fm6.open(st.t); return; }
     if (tab.slices) { st.loading = false; render(); await loadSlices(token); return; }
-    st.loading = true; render();
+    st.loading = true; st.pend = {}; render();
     try {
       await Promise.all(list.map(([s, id]) => d().describe(s, id, st.t)));
       for (const [s, id] of list) {
@@ -82,6 +86,8 @@ export function SoundScreen(ctx) {
       }
     } catch (e) { ctx.say(e.message, "error"); }
     if (token !== st.token) return;
+    for (const k in st.pend) if (k in st.vals) st.vals[k] = st.pend[k];
+    st.pend = {};
     st.loading = false; render();
   }
 
