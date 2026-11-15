@@ -473,3 +473,26 @@ svg.env .dot.hot, svg.env .dot:focus-visible { stroke: #fff; stroke-width: 3; }
 .slices input[type=range] { width: 100%; min-height: var(--hit); }
 
 [hidden] { display: none !important; }
+
+/* Kit: the USER drum kit (kit.js) */
+.kit { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.kitbar { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+.kitbar .seg button { min-width: 84px; }
+.kitbar .btn.red { justify-self: start; }
+.kitgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+.kit .card { gap: 8px; padding: 10px; }
+.kit .lanes { grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.kit .lanes button { display: flex; flex-direction: column; gap: 0; align-items: center; justify-content: center; min-width: 0; padding: 0 2px; font-size: 11px; line-height: 1.1; }
+.kit .lanes button b { font-size: 15px; }
+.field.inline.kitf { display: grid; grid-template-columns: 70px minmax(0, 1fr) var(--hit) 80px var(--hit); gap: 6px; align-items: center; flex-direction: row; }
+.kitf .nm { font-weight: 800; font-size: 13px; letter-spacing: .04em; }
+.kit .step { padding: 0; font-size: 20px; }
+.kitnum { min-height: var(--hit); width: 100%; background: var(--cell); border: 1px solid var(--line); font-weight: 800; text-align: center; padding: 0 4px; }
+.kitrun .chips { grid-template-columns: repeat(11, 1fr); gap: 4px; }
+.kitrun .chips button { font-size: 11px; padding: 0 1px; min-width: 0; }
+.kitslot { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto auto; gap: 4px; align-items: center; }
+.kitslot .btn { padding: 0 8px; min-width: 0; min-height: 38px; font-size: 13px; }
+.kitslot .dim { color: var(--mute); }
+.kit .nm[type=text] { min-height: 38px; background: var(--cell); border: 1px solid var(--line); padding: 0 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.kitbar .pager { flex: none; width: 170px; }
+.kit .chips.seeds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; } .kit .chips.seeds button { font-size: 13px; padding: 0 4px; }

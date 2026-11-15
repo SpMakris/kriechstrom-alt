@@ -3,6 +3,7 @@
 
 import { el, ic, own, repaint, idle } from "./ui.js";
 import { Fm6Screen } from "./fm6.js";
+import { KitScreen } from "./kit.js";
 import { accident } from "./tools.js";
 import { Ext, KRST } from "./ext.js";
 
@@ -17,6 +18,7 @@ function tabsFor(d, t) {
     ...(eng === "FM6" && d.hasFm6 ? [{ k: "fm6", label: "FM6 voice", fm6: true }] : []),
     { k: "tone", label: "Tone", cards: [{ title: ti[0] || "Edit 1", ids: P([pe0, pe0 + 1, pe0 + 2, pe0 + 3]) }, { title: ti[1] || "Edit 2", ids: P([pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]) },
       ...(pe0 >= 91 && eng === "DRUM" ? [{ title: "Lanes", ids: P(LANE_IDS.slice(0, 4)) }, { title: "Lanes 2", ids: P(LANE_IDS.slice(4)) }] : [])] },
+    ...(eng === "DRUM" && d.tags.kit ? [{ k: "kit", label: "Kit", kit: true }] : []),
     ...(eng === "SLICE" && (d.tags.krst & KRST.SLICE) ? [{ k: "slices", label: "Slices", slices: true }] : []),
     { k: "env", label: "Envelope", cards: [{ title: "Envelope", ids: P([1, 2, 3, 4]) }, { title: "Envelope to", ids: P([5, 6, 7, 8]) }, { title: "Filter and timing", ids: Q([101, 102]) }] },
     { k: "lfo", label: "LFO", cards: [{ title: "LFO", ids: P([9, 10, 11, 12]) }, { title: "LFO to", ids: P([13, 14, 15, 16]) }, { title: "LFO sync", ids: Q([91, 92, 93]) }] },
@@ -38,6 +40,7 @@ export function SoundScreen(ctx) {
   const d = () => ctx.dev();
   const A = () => d().A;
   const fm6 = Fm6Screen(ctx);   /* the FM6 engine's own editor: it is the first tab of an FM6 track */
+  const kit = KitScreen(ctx);   /* the USER drum kit: the DRUM engine's Kit tab */
   const first = () => { st.tab = tabsFor(d(), st.t)[0].k; };
   const vkey = (s, id) => (s ? "g" : st.t + ":") + id;
   const visible = (x) => x && x.max > x.min && x.label !== "-";
@@ -62,7 +65,7 @@ export function SoundScreen(ctx) {
     await d().readNames(d().tracks[st.t].engine);
     first(); st.vals = {}; await showTab();
   }
-  async function pick(t) { fm6.leave(); st.t = t; st.sheet = null; st.vals = {}; await d().readNames(d().tracks[t].engine); first(); await showTab(); }
+  async function pick(t) { fm6.leave(); kit.leave(); st.t = t; st.sheet = null; st.vals = {}; await d().readNames(d().tracks[t].engine); first(); await showTab(); }
 
   function ids() {
     const tab = tabsFor(d(), st.t).find((x) => x.k === st.tab) || tabsFor(d(), st.t)[0];
@@ -71,8 +74,9 @@ export function SoundScreen(ctx) {
   }
   async function showTab() {
     const token = ++st.token;
-    fm6.leave();
+    fm6.leave(); kit.leave();
     const { tab, list } = ids();
+    if (tab.kit) { st.loading = false; render(); kit.open(st.t); return; }
     if (tab.fm6) { st.loading = false; render(); fm6.open(st.t); return; }
     if (tab.slices) { st.loading = false; render(); await loadSlices(token); return; }
     st.loading = true; st.pend = {}; render();
@@ -227,7 +231,8 @@ export function SoundScreen(ctx) {
     const rail = el("div", { class: "rail", role: "tablist", "aria-label": "Sound groups" }, all.map((x) =>
       el("button", { role: "tab", "aria-selected": String(x.k === st.tab), "aria-pressed": String(x.k === st.tab), text: x.label, onclick: () => { st.tab = x.k; showTab(); } })));
     let content;
-    if (tab.fm6) content = own(fm6.el);
+    if (tab.kit) content = own(kit.el);
+    else if (tab.fm6) content = own(fm6.el);
     else if (st.loading) content = el("div", { class: "empty" }, el("p", { text: "Reading..." }));
     else if (tab.slices) content = slicesEl();
     else if (tab.mod != null) {
@@ -281,5 +286,5 @@ export function SoundScreen(ctx) {
     if (!d()) return;
     root.append(...[head(), body(), sheet()].filter(Boolean));
   }
-  return { el: root, open, render, leave() { shown = false; fm6.leave(); } };
+  return { el: root, open, render, leave() { shown = false; fm6.leave(); kit.leave(); } };
 }

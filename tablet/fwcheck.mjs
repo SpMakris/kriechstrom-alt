@@ -4,6 +4,9 @@
 //
 //   KRST_DESC_DUMP=1 editor_test > tablet/fw_desc.txt     (vendor/kriechstrom/tests/editor_test.c, desc_dump)
 //
+// The USER drum kit: fw_kit.txt is a request script with the firmware's answers (KRST_KIT_SCRIPT=1 editor_test > tablet/fw_kit.txt),
+// replayed on a fresh mock; kitdata.js, the data the mock answers from, is the firmware's too (KRST_KIT_DATA=1 editor_test > tablet/kitdata.js).
+//
 // node tablet/fwcheck.mjs [--show]   exit 1 when the simulated machine says anything else than the firmware.
 
 import { readFileSync } from "node:fs";
@@ -34,6 +37,19 @@ for (let r of fw) {
   n++;
   if (r.tag === "I") { r = { ...r, hex: infoKey(r.hex) }; got = infoKey(got); }       /* INFO: the capability tags as a set; the version text is the build's own */
   if (got !== r.hex) bad.push({ ...r, got });
+}
+/* the kit script: requests in order on a fresh machine, the answers byte for byte */
+{
+  const kitFw = readFileSync(new URL("./fw_kit.txt", import.meta.url), "utf8").trim().split("\n").map((l) => { const [, c, n, rest] = l.split(" "); const [args, rep] = (rest || "_").split("_"); return { cmd: +c, args: (args.match(/../g) || []).map((x) => parseInt(x, 16)), hex: rep }; });
+  const m2 = makeMock(A), o2 = [...m2.access.outputs.values()][0], i2 = [...m2.access.inputs.values()][0], q2 = [];
+  i2.onmidimessage = (e) => q2.shift()?.(Array.from(e.data));
+  const ask2 = (cmd, args) => new Promise((res) => { q2.push(res); o2.send([0xF0, 0x7D, 0x46, 0x4C, cmd, ...args, 0xF7]); setTimeout(() => res(null), 400); });
+  let kn = 0;
+  for (const r of kitFw) {
+    const got = hex(await ask2(r.cmd, r.args));
+    kn++; n++;
+    if (got !== r.hex) bad.push({ tag: "K", a: r.cmd, b: kn, hex: r.hex, got });
+  }
 }
 const text = (h) => { const b = h.match(/../g)?.map((x) => parseInt(x, 16)) || []; return b.map((c) => (c >= 32 && c < 127 ? String.fromCharCode(c) : c === 0 ? "|" : ".")).join(""); };
 const byKind = {};

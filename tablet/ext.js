@@ -1,7 +1,7 @@
 // The commands the upstream editor's protocol layer does not know yet (EDITOR_PROTOCOL.md): MENU settings, the FM6 voice bank,
 // MIDI LEARN, the CUSTOM palette and the backup list; plus the optional feature tags of INFO. Each call takes the Device.
 
-export const XC = { BACKUP_LIST: 65, MENU_DESC: 72, MENU_SET: 73, FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79, PALETTE_GET: 80, PALETTE_SET: 81, PERF: 82, KEYMAP: 83, SLICE: 84, DRUMMUTE: 85, CLEARALL: 86, MLEARN: 87 };
+export const XC = { BACKUP_LIST: 65, MENU_DESC: 72, MENU_SET: 73, FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79, PALETTE_GET: 80, PALETTE_SET: 81, PERF: 82, KEYMAP: 83, SLICE: 84, DRUMMUTE: 85, CLEARALL: 86, MLEARN: 87, KIT_LANE: 88, KIT_SET: 89, KIT_INFO: 90, KIT_SLOT: 91, KIT_SEED: 92, KIT_CHANGED: 93 };
 
 /* the tagged blocks of INFO's trailer: `tag 01 value`. Absent = the firmware has not got the feature. */
 export function tags(trailer) {
@@ -14,6 +14,7 @@ export function tags(trailer) {
     sections: at(0x57, (v) => v === 4),
     backup: at(0x42, (v) => v >= 1 && v <= 3),
     krst: at(0x58, (v) => v > 0 && v <= 127),                    /* the tablet commands: bit 0 PERF, 1 KEYMAP, 2 SLICE, 3 DRUMMUTE, 4 CLEARALL, 5 HISS, 6 MLEARN */
+    kit: at(0x59, (v) => v === 1),                               /* the USER drum kit: cmds 88..93 (every number of the kit tables) */
     chain: trailer[0] === 16,
   };
 }
@@ -136,6 +137,29 @@ export const Ext = {
 
   /* MIDI LEARN on / off (GLO + D4 on the machine); no argument reads it */
   async mlearn(d, on) { return !!(await d.rq([XC.MLEARN, on == null ? [] : [on ? 1 : 0]]))[0]; },
+
+  /* the USER drum kit (editor_kit.c): 8 lanes of fields, each with its name and range, in the order the machine pages them. A lane
+   * answers as {lane, run, fields: [{f, v, lo, hi, name}]} (values 3 x 7 bit, offset 1024) */
+  kitLaneParse(d, a) {
+    const { Reader } = d.A, r = new Reader(a), num = () => r.b() | (r.b() << 7) | (r.b() << 14), o = { lane: r.b(), run: r.b(), fields: [] }, n = r.b();
+    for (let i = 0; i < n; i++) o.fields.push({ f: r.b(), v: num() - 1024, lo: num() - 1024, hi: num() - 1024, name: r.s() });
+    return o;
+  },
+  async kitInfo(d) {
+    const { Reader } = d.A, r = new Reader(await d.rq([XC.KIT_INFO, []])), nr = r.b(), nl = r.b(), ns = r.b(), used = r.b(), working = r.b(), nseed = r.b();
+    const list = (n) => Array.from({ length: n }, () => r.s());
+    return { nlanes: nl, nsaved: ns, used, working: !!working, runs: list(nr), seeds: list(nseed), kits: list(ns) };
+  },
+  async kitLane(d, lane) { return Ext.kitLaneParse(d, await d.rq([XC.KIT_LANE, [lane]], { timeout: 600 })); },
+  /* one number; the answer is the whole lane (the value in its range, a paired number given way, a RUN change: the fields of the new run) */
+  async kitSet(d, lane, f, v) { return Ext.kitLaneParse(d, await d.rq([XC.KIT_SET, [lane, f, ...b3(v + 1024)]], { key: "kit-" + lane + "-" + f, timeout: 600, retries: 0 })); },
+  /* op 1 SAVE (k, name), 2 LOAD, 3 ERASE: {rc: 0 done, 1 bad slot, name or empty kit, 2 flash error or the transport runs, 3 kept in RAM only, used} */
+  async kitSlot(d, op, k, name) {
+    const args = op === 1 ? [1, k, ...Array.from(name, (c) => c.charCodeAt(0) & 127)] : [op, k], a = await d.rq([XC.KIT_SLOT, args], { timeout: 3000, retries: 0 });
+    return { rc: a[2], used: a[3] };
+  },
+  /* a model kit (1..8 of KIT.seeds) into every lane, or into one lane from a lane of it */
+  async kitSeed(d, nib, lane, src) { return (await d.rq([XC.KIT_SEED, lane == null ? [127, nib] : [lane, nib, src]], { timeout: 1000 }))[0]; },
 
   /* backup list (the manifest is parsed by fm1backup.js when a backup is taken) */
   async backupList(d) { return d.rq([XC.BACKUP_LIST, []], { timeout: 3000, retries: 0 }); },

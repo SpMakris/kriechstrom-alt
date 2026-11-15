@@ -219,6 +219,33 @@ ok(n > 10, "pulses were scheduled after a tempo change");
   ok(dev.tracks[1].level === 33 && tracksEvents === 1, "live sync: a level change updates the track once, the same value again announces nothing");
 }
 
+
+/* ---- the USER drum kit ---- */
+{
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  const I = await Ext.kitInfo(dev);
+  ok(I.nlanes === 8 && I.nsaved === 7 && I.runs.length >= 11 && I.seeds.length === 8, "kit: INFO has 8 lanes, 7 saved kits, runs and model kits");
+  let L = await Ext.kitLane(dev, 0);
+  const pitch = L.fields.find((f) => f.name === "PITCH");
+  L = await Ext.kitSet(dev, 0, pitch.f, pitch.hi + 500);
+  ok(L.fields.find((f) => f.name === "PITCH").v === pitch.hi, "kit: a value past its range is clamped by the machine");
+  dev.mock.kitMachineSet(0, pitch.f, pitch.lo);
+  let pushed = 0; dev.on("kit", () => pushed++);
+  dev.mock.kitMachineSet(0, pitch.f, pitch.lo + 3); await tick();
+  L = await Ext.kitLane(dev, 0);
+  ok(pushed >= 1 && L.fields.find((f) => f.name === "PITCH").v === pitch.lo + 3, "kit: a number turned on the machine is announced and read back");
+  const sv = await Ext.kitSlot(dev, 1, 2, "TESTKIT");
+  const I2 = await Ext.kitInfo(dev);
+  ok((sv.rc === 0 || sv.rc === 3) && ((I2.used >> 2) & 1) === 1 && I2.kits[2] === "TESTKIT", "kit: SAVE names the slot and marks it used");
+  await Ext.kitSeed(dev, 1);
+  const ld = await Ext.kitSlot(dev, 2, 2);
+  ok(ld.rc === 0 || ld.rc === 3, "kit: LOAD of a saved kit is done");
+  await Ext.kitSlot(dev, 3, 2);
+  ok((((await Ext.kitInfo(dev)).used >> 2) & 1) === 0, "kit: ERASE frees the slot");
+  const bad = await Ext.kitSlot(dev, 1, 9, "X");
+  ok(bad.rc === 1, "kit: a slot out of range is refused");
+}
+
 dev.close();
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);

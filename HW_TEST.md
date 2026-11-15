@@ -74,6 +74,13 @@ Mark each one. Anything that fails: stop, note what you did, and tell me before 
 - [ ] Settings > System > Clear all asks first, then the music is a new project; the stored projects, user sounds, samples,
       settings and MIDI learn are still there.
 
+**USER drum kit (cmds 88-93)** (stop the sequencer before saving)
+- [ ] DRUM track, EDIT 1: KIT USER shows EDIT > KIT 1..7 and KIT SLOT. KNOB 1 picks the lane, KNOB 2..4 change numbers; the sound follows.
+- [ ] KIT SLOT: SAVE puts the working kit in K1..K7 (named "KIT n"), LOAD and ERASE work; a model kit LOADs all eight lanes.
+- [ ] Power-cycle: the working kit and the saved kits are back. Preset slots 17..32 of older firmware are gone (user presets are 16).
+- [ ] Tablet Sound > Kit: a number moved on the tablet is heard and shown on the machine; a knob turned on the machine moves the tablet's number.
+- [ ] Tablet Kit > Kits: Save, Load, Erase and "Start from a model kit" do what the machine's KIT SLOT does.
+
 ## 3. What was verified (host only)
 
 - Firmware: the editor tests on the host (plain and under AddressSanitizer), with the second core off, the fuzzer, and the full

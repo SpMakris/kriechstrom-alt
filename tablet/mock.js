@@ -2,6 +2,8 @@
 // answers the newer step fields (nudge, condition) and parameter locks, which the upstream mock does not simulate.
 // Everything it does not handle goes to the upstream mock unchanged.
 
+import { KIT } from "./kitdata.js";
+
 const HDR = [0x7D, 0x46, 0x4C];
 
 export function makeMock(A, opt = {}) {
@@ -29,7 +31,7 @@ export function makeMock(A, opt = {}) {
       if (cmd === CMD.INFO) {                                    /* advertise the newer features this mock adds */
         const have = (t) => { for (let i = 0; i + 1 < a.length; i++) if (a[i] === t && a[i + 1] === 1) return true; return false; };
         if (!have(0x42)) { const k = a.findIndex((x, i) => x === 0x4D && a[i + 1] === 1 && a[i + 2] === 64); if (k >= 0) a.splice(k + 4, 0, 0x42, 1, 3); }   /* BACKUP caps follow the motion tag */
-        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(have(0x41) ? [] : [0x41, 1, 0, 1]), ...(krst ? [0x58, 1, 127] : []), 0xF7]);
+        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(have(0x41) ? [] : [0x41, 1, 0, 1]), ...(krst ? [0x58, 1, 127, 0x59, 1, 1] : []), 0xF7]);
         return;
       }
       if (cmd === CMD.TRACK_STEP || cmd === CMD.STEP_GET) {
@@ -74,6 +76,7 @@ export function makeMock(A, opt = {}) {
     if (cmd === CMD.MOTION) { motion(a); return; }
     if (cmd >= 65 && cmd <= 67 || (bk.restoring && cmd >= 11 && cmd <= 14)) { backupOp(cmd, a); return; }
     if (krst && cmd >= 82 && cmd <= 87) { tab(cmd, a); return; }
+    if (krst && cmd >= 88 && cmd <= 92) { kitOp(cmd, a); return; }
     if (krst && (cmd === CMD.GET || cmd === CMD.SET || cmd === CMD.DESC) && a[0] === 1 && a[1] === 27) { hissOp(cmd, a); return; }
     if (cmd >= 72 && cmd <= 81) { extra(cmd, a); return; }
     if (cmd === CMD.SONG && a[0] >= 4) { songOp(a); return; }
@@ -202,6 +205,68 @@ export function makeMock(A, opt = {}) {
     reply(cmd, [1, 27, ...enc14(hiss.v)]);
   }
 
+  /* the USER drum kit (editor_kit.c, drum_ukit.c): 8 lanes of 27 fields, each in its run's range; the data (the model kits, the
+   * ranges) is the firmware's own: kitdata.js. KIT_CHANGED (93) is what the machine pushes when its knobs move a number */
+  const NF = KIT.nfields, NL = 8, NSAVED = 7, KOFS = 1024;
+  const kit = { lanes: KIT.seed[0].map((l) => l.slice()), saved: Array(NSAVED).fill(null), gen: 0, working: false };
+  const kmeta = (run, f) => KIT.meta[run][f] || null;
+  const kclamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const kpair = (lane, f, v) => {                               /* the metal and noise levels of a hat / cymbal add up to at most 32767 */
+    const run = lane[0], a = run === 3 || run === 4 ? 11 : run === 10 ? 13 : -1;
+    if (a < 0) return v;
+    if (f === a) return Math.min(v, 32767 - lane[a + 1]);
+    if (f === a + 1) return Math.min(v, 32767 - lane[a]);
+    return v;
+  };
+  const kfirst = (run) => { for (let k = 0; k < KIT.seed.length; k++) for (let l = 0; l < NL; l++) if (KIT.seed[k][l][0] === run) return KIT.seed[k][l]; return null; };
+  function kset(l, f, v) {                                      /* uk_set: 1 when the lane changed */
+    const lane = kit.lanes[l], m = kmeta(lane[0], f);
+    if (!m) return 0;
+    v = kpair(lane, f, kclamp(v, m[1], m[2]));
+    if (lane[f] === v) return 0;
+    if (f === 0) { const s = kfirst(v % KIT.runs.length); if (s) kit.lanes[l] = s.slice(); }
+    else lane[f] = v;
+    kit.gen = (kit.gen + 1) & 127; kit.working = true;
+    return 1;
+  }
+  const kvis = (l) => { const o = []; for (let f = 0; f < NF; f++) if (kmeta(kit.lanes[l][0], f)) o.push(f); return o; };
+  function klane(l) {
+    const lane = kit.lanes[l], vis = kvis(l);
+    return [l, lane[0], vis.length, ...vis.flatMap((f) => { const m = kmeta(lane[0], f); return [f, ...b3(lane[f] + KOFS), ...b3(m[1] + KOFS), ...b3(m[2] + KOFS), ...strB(m[0].slice(0, 5))]; })];
+  }
+  const kmask = () => kit.saved.reduce((m, x, i) => (x ? m | (1 << i) : m), 0);
+  const kname = (n) => String.fromCharCode(...n);
+  function kitOp(cmd, a) {
+    if (cmd === 88) { if (a.length !== 1 || a[0] >= NL) return; return reply(88, klane(a[0])); }
+    if (cmd === 89) { if (a.length !== 5 || a[0] >= NL || a[1] >= NF) return; kset(a[0], a[1], r3(a, 2) - KOFS); return reply(89, klane(a[0])); }
+    if (cmd === 90) {
+      if (a.length) return;
+      return reply(90, [KIT.runs.length, NL, NSAVED, kmask(), kit.working ? 1 : 0, KIT.seeds.length, ...KIT.runs.flatMap(strB), ...KIT.seeds.flatMap(strB), ...kit.saved.flatMap((x) => strB(x ? x.name : ""))]);
+    }
+    if (cmd === 91) {
+      if (a.length < 2 || !((a[0] === 1 && a.length >= 3 && a.length <= 14) || ((a[0] === 2 || a[0] === 3) && a.length === 2))) return;
+      let rc = 0;
+      const k = a[1];
+      if (k >= NSAVED) rc = 1;
+      else if (a[0] === 1) {
+        const nm = kname(a.slice(2));
+        if (!/^[\x20-\x7e]+$/.test(nm)) rc = 1; else kit.saved[k] = { name: nm, lanes: kit.lanes.map((x) => x.slice()) };
+      } else if (a[0] === 2) { if (!kit.saved[k]) rc = 1; else { kit.lanes = kit.saved[k].lanes.map((x) => x.slice()); kit.gen = (kit.gen + 1) & 127; kit.working = true; } }
+      else kit.saved[k] = null;
+      return reply(91, [a[0], k, rc, kmask()]);
+    }
+    if (cmd === 92) {
+      const all = a.length === 2 && a[0] === 127 && a[1] >= 1 && a[1] <= KIT.seeds.length;
+      const one = a.length === 3 && a[0] < NL && a[1] >= 1 && a[1] <= KIT.seeds.length && a[2] < NL;
+      if (!all && !one) return;
+      if (all) kit.lanes = KIT.seed[a[1] - 1].map((x) => x.slice()); else kit.lanes[a[0]] = KIT.seed[a[1] - 1][a[2]].slice();
+      kit.gen = (kit.gen + 1) & 127; kit.working = true;
+      return reply(92, [0]);
+    }
+  }
+  /* a number moved on the machine (a test stands for its knob): the push the tablet mirrors */
+  const kitMachineSet = (l, f, v) => { if (kset(l, f, v)) reply(93, [kit.gen, kmask(), kit.working ? 1 : 0]); };
+
   function v14(lo, hi) { return (lo | (hi << 7)) - 8192; }
   function enc14(v) { const u = Math.max(-8192, Math.min(8191, v)) + 8192; return [u & 0x7F, (u >> 7) & 0x7F]; }
   /* the whole-machine backup (BACKUP 65..67): 13 objects of fixed bytes; a restore stages, checks the CRC and replaces */
@@ -248,5 +313,5 @@ export function makeMock(A, opt = {}) {
   /* what the machine pushes when a knob is turned on it: CHANGED (the selected track's parameter, or a global) and TRACK_CHANGED */
   const pushChanged = (scope, id, value) => reply(CMD.CHANGED, [scope, id, ...enc14(value)]);
   const pushTrackChanged = (t, id, value) => reply(CMD.TRACK_CHANGED, [t, id, ...enc14(value)]);
-  return { pushChanged, pushTrackChanged, perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
+  return { pushChanged, pushTrackChanged, kit, kitMachineSet, perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
 }
