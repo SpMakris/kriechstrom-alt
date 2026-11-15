@@ -1545,8 +1545,51 @@ static int krst_ext(void)
 }
 
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
+/* KRST_DESC_DUMP=1: print what the editor protocol says about the engines and the globals, one line per answer, as the
+ * bytes after the frame header (the tablet's mock is checked against this: tablet/desc_fw.txt, tablet/test.mjs). */
+static void dump_frame(const char *tag, uint32_t a0, uint32_t a1)
+{
+    uint32_t i, k;
+    for (k = 0; k < 200u && !(host_wire_n && host_wire[host_wire_n - 1u] == 0xF7u); k++) { ed_service(); host_drain(); }   /* (a long reply leaves over several passes) */
+    printf("%s %u %u ", tag, (unsigned)a0, (unsigned)a1);
+    if (host_wire_n >= 6u)
+        for (i = 4; i + 1u < host_wire_n; i++) printf("%02x", host_wire[i]);
+    printf("\n");
+}
+static void desc_dump(void)
+{
+    uint32_t e, id;
+    uint8_t a[2];
+    request(ED_INFO, 0, 0);
+    dump_frame("I", 0, 0);
+    for (e = 0; e < NENGINES; e++) {
+        a[0] = (uint8_t)e; a[1] = 0;
+        request(ED_PRESET, a, 2);                       /* (the selected track takes the engine: DESC answers for it) */
+        {
+            uint32_t k; const char *c;
+            #define HX(ch) printf("%02x", (unsigned)(uint8_t)(ch))
+            printf("N %u 0 ", (unsigned)e);
+            HX(10); HX(e); HX(ENGINES[e]->npresets);
+            for (k = 0; k < ENGINES[e]->npresets; k++) { for (c = ENGINES[e]->presets[k].name; *c; c++) HX(*c); HX(0); }
+            for (k = 0; k < 2; k++) { for (c = ENGINES[e]->page_title[k]; *c; c++) HX(*c); HX(0); }
+            printf("\n");
+        }
+        for (id = 0; id < P_COUNT; id++) {
+            a[0] = 0; a[1] = (uint8_t)id;
+            request(ED_DESC, a, 2);
+            dump_frame("D0", e, id);
+        }
+    }
+    for (id = 0; id < G_ALL; id++) {
+        a[0] = 1; a[1] = (uint8_t)id;
+        request(ED_DESC, a, 2);
+        dump_frame("D1", 0, id);
+    }
+}
+
 int main(void)
 {
+    if (getenv("KRST_DESC_DUMP")) { desc_dump(); return 0; }
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol() + custom_palette();
