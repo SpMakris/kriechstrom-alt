@@ -104,6 +104,11 @@ function renderBar() {
   if (!barEl) return;
   const d = dev(), g = d.global, run = S.clock && S.clock.running;
   const canClock = g.ok;
+  /* Rebuilding the bar replaces the button under a finger: a press that straddles a rebuild (a machine report arrives every
+   * few tens of ms) never gets its click. So the bar is only rebuilt when something it shows has changed. */
+  const sig = [S.screen, d.tags.krst & 1, run, bpm(), canClock, S.clockOn, S.clock && S.clock.late, S.status.kind, S.status.text].join("|");
+  if (barEl.dataset.sig === sig && barEl.firstChild) return;
+  barEl.dataset.sig = sig;
   barEl.replaceChildren(...[
     el("span", { class: "brand", text: "KRIECHSTROM" }),
     el("nav", { class: "nav", "aria-label": "Screens" }, SCREENS.filter(([k]) => k !== "perform" || (d.tags.krst & 1)).map(([k, label]) => el("button", { "aria-current": String(S.screen === k), onclick: () => goto(k), text: label }))),
