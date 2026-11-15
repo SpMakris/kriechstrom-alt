@@ -1,7 +1,7 @@
 // Song screen: the song chain. A song is up to 16 sections; each section says which saved project (A to D, or silence) each of the
 // four tracks plays and how many times it repeats. Firmware before 1.2 has rows (one project per row): shown as one lane.
 
-import { el, ic } from "./ui.js";
+import { el, ic, idle } from "./ui.js";
 
 const SLOT = ["A", "B", "C", "D", "-"];
 const RC = { 1: "The song has a section the machine cannot play.", 2: "The machine is busy. Try again.", 3: "Project A is empty. Save a project there first.", 4: "Project B is empty. Save a project there first.", 5: "Project C is empty. Save a project there first.", 6: "Project D is empty. Save a project there first." };
@@ -39,7 +39,7 @@ export function SongScreen(ctx) {
   async function poll() {
     if (!d() || st.busy) return;
     /* the screen is only rebuilt when what it shows changed: a rebuild every poll replaced the button under a finger and the tap was lost */
-    try { const was = key(); const r = await ask(ops().get); take(r); if (r.secs.length !== st.secs.length && !st.running) st.secs = r.secs; if (key() !== was) render(); } catch (e) { /* the status bar says */ }
+    try { const was = key(); const r = await ask(ops().get); take(r); if (r.secs.length !== st.secs.length && !st.running) st.secs = r.secs; if (key() !== was) idle("song", render); } catch (e) { /* the status bar says */ }
   }
   async function push(next) {
     st.busy = true;

@@ -42,3 +42,14 @@ export function textSheet({ title, text, value = "", max = 12, yes = "OK", onYes
     text ? el("p", { class: "hint", text }) : null, inp,
     el("div", { class: "row" }, el("button", { class: "btn grow", onclick: onNo, text: "Cancel" }), el("button", { class: "btn grow red", onclick: () => onYes(inp.value), text: yes })));
 }
+
+/* A device event or a timer must not rebuild the screen while a finger is down: the node under the finger would vanish and the
+ * tap (or the drag) with it. idle(key, fn) runs fn now, or, with a finger down, once all fingers are up (the last call per key
+ * wins). A pointer that never reports its end (the page lost focus) stops counting after 10 s. */
+const fingers = new Map(), waiting = new Map();
+const down = () => { const now = performance.now(); for (const [id, t] of fingers) if (now - t > 10000) fingers.delete(id); return fingers.size > 0; };
+const flush = () => { if (down()) return; const fns = [...waiting.values()]; waiting.clear(); fns.forEach((f) => f()); };
+addEventListener("pointerdown", (e) => fingers.set(e.pointerId, performance.now()), true);
+for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, (e) => { fingers.delete(e.pointerId); flush(); }, true);
+addEventListener("blur", () => { fingers.clear(); flush(); });
+export function idle(key, fn) { if (down()) waiting.set(key, fn); else fn(); }

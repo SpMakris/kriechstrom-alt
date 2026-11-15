@@ -5,7 +5,7 @@ import { LibraryScreen } from "./library.js";
 import { SettingsScreen } from "./settings.js";
 import { Device } from "./device.js";
 import { MidiClock } from "./clock.js";
-import { el, ic } from "./ui.js";
+import { el, ic, idle } from "./ui.js";
 import { MixScreen } from "./mix.js";
 import { SoundScreen } from "./sound.js";
 import { PerformScreen } from "./perform.js";
@@ -65,9 +65,9 @@ async function start(mock) {
   const d = new Device();
   S.dev = d;
   d.on("status", (t, k) => say(t, k));
-  d.on("tracks", () => { if (!rowsEl) return; if (S.screen === "mix" && !S.drag) screens.mix.refresh(); if (S.drag) { S.dirty = true; return; } renderRows(); if (S.drawer) renderDrawer(); renderBar(); });
-  d.on("steps", (t, i) => { if (!rowsEl) return; updateCells(t, i); if (S.drawer && !S.drag && S.sel && S.sel.t === t && (i == null || i === S.sel.i)) renderDrawer(); });
-  d.on("global", () => { if (barEl && !S.drag) renderBar(); });
+  d.on("tracks", () => { if (!rowsEl) return; idle("tracks", () => { if (S.screen === "mix") screens.mix.refresh(); if (S.drag) { S.dirty = true; return; } renderRows(); if (S.drawer) renderDrawer(); renderBar(); }); });
+  d.on("steps", (t, i) => { if (!rowsEl) return; updateCells(t, i); if (S.drawer && !S.drag && S.sel && S.sel.t === t && (i == null || i === S.sel.i)) idle("drawer", () => { if (S.drawer && !S.drag) renderDrawer(); }); });
+  d.on("global", () => { if (barEl && !S.drag) idle("bar", renderBar); });
   d.on("lost", () => { stopClock(); S.dev = null; S.clockOn = false; S.screen = "jam"; renderGate("The FM-1 was disconnected."); });
   d.polled = (t) => ({ page: S.page[t] });
   try { await d.connect({ mock }); } catch (e) { d.close(); S.dev = null; console.error(e); renderGate(e.message); return; }
@@ -106,7 +106,7 @@ function renderBar() {
   const canClock = g.ok;
   /* Rebuilding the bar replaces the button under a finger: a press that straddles a rebuild (a machine report arrives every
    * few tens of ms) never gets its click. So the bar is only rebuilt when something it shows has changed. */
-  const sig = [S.screen, d.tags.krst & 1, run, bpm(), canClock, S.clockOn, S.clock && S.clock.late, S.status.kind, S.status.text].join("|");
+  const sig = [S.screen, d.tags.krst & 1, run, bpm(), canClock, S.clockOn, S.clock && S.clock.late, S.status.kind].join("|");
   if (barEl.dataset.sig === sig && barEl.firstChild) return;
   barEl.dataset.sig = sig;
   barEl.replaceChildren(...[
