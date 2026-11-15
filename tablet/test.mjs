@@ -192,6 +192,33 @@ ok(n > 10, "pulses were scheduled after a tempo change");
   stock.close();
 }
 
+/* an engine's own parameters (P_E0 and up) are described per engine: DRUM's are not ANALOG's */
+{
+  const pe0 = dev.info.pe0, byEng = {};
+  for (let t = 0; t < dev.ntrk; t++) byEng[dev.tracks[t].engineName] = (await dev.describe(0, pe0, t)).label;
+  const names = Object.keys(byEng);
+  ok(names.includes("DRUM") && byEng.DRUM === "KIT" && byEng.ANALOG === "WAVE", "engine parameters: DRUM's first is KIT, ANALOG's is WAVE (" + names.map((n) => n + " " + byEng[n]).join(", ") + ")");
+  const kit = await dev.describe(0, pe0, names.indexOf("DRUM") >= 0 ? dev.tracks.findIndex((x) => x.engineName === "DRUM") : 0);
+  const labels = [];
+  for (let k = 0; k < 8; k++) labels.push((await dev.describe(0, pe0 + k, dev.tracks.findIndex((x) => x.engineName === "DRUM"))).label);
+  ok(eq(labels, ["KIT", "TUNE", "TONE", "DECY", "SNAP", "ACC", "KICK", "DRV"]), "DRUM: KIT TUNE TONE DECY SNAP ACC KICK DRV are described");
+  ok(kit.names && kit.names.includes("DSTR"), "DRUM KIT: its kit names come with the description");
+}
+
+/* a knob turned on the machine reaches the screens: CHANGED / TRACK_CHANGED become a "param" event, and the track's own values follow */
+{
+  const got = [], tick = () => new Promise((r) => setTimeout(r, 20));
+  dev.on("param", (sc, t, id, v) => got.push([sc, t, id, v]));
+  dev.mock.pushChanged(0, dev.info.pe0 + 4, 77); await tick();
+  dev.mock.pushChanged(1, 4, 5); await tick();
+  dev.mock.pushTrackChanged(2, dev.info.pe0, 9); await tick();
+  ok(eq(got, [[0, dev.sel, dev.info.pe0 + 4, 77], [1, null, 4, 5], [0, 2, dev.info.pe0, 9]]), "live sync: a knob on the machine is announced (engine parameter, global, another track's)");
+  let tracksEvents = 0; dev.on("tracks", () => tracksEvents++);
+  dev.mock.pushTrackChanged(1, 0, 33); await tick();
+  dev.mock.pushTrackChanged(1, 0, 33); await tick();
+  ok(dev.tracks[1].level === 33 && tracksEvents === 1, "live sync: a level change updates the track once, the same value again announces nothing");
+}
+
 dev.close();
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);

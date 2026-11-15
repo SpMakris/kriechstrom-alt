@@ -41,7 +41,7 @@ export function SettingsScreen(ctx) {
     render();
   }
   async function labels() {
-    for (let id = 0; id < d().info.pcount; id++) { if (st.labels[id] != null) continue; try { const x = await d().describe(0, id); st.labels[id] = x.max > x.min && x.label !== "-" ? x.label : null; } catch (e) { st.labels[id] = null; } }
+    for (let id = 0; id < d().info.pcount; id++) { if (st.labels[id] != null) continue; try { const x = await d().describe(0, id, ctx.hand()); st.labels[id] = x.max > x.min && x.label !== "-" ? x.label : null; } catch (e) { st.labels[id] = null; } }
   }
 
   /* -------------------------------------------------------------- menu --- */

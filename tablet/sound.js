@@ -1,7 +1,7 @@
 // Sound screen: the parameters of one track's sound, grouped the way the machine groups them, one group per tab.
 // Engine and preset are chosen from sheets. Nothing scrolls: each tab holds at most a screenful.
 
-import { el, ic, own, repaint } from "./ui.js";
+import { el, ic, own, repaint, idle } from "./ui.js";
 import { Fm6Screen } from "./fm6.js";
 import { accident } from "./tools.js";
 import { Ext, KRST } from "./ext.js";
@@ -42,7 +42,17 @@ export function SoundScreen(ctx) {
   const vkey = (s, id) => (s ? "g" : st.t + ":") + id;
   const visible = (x) => x && x.max > x.min && x.label !== "-";
 
+  /* a knob turned on the machine: the control shows it (the push says the track's engine parameter or the global that changed) */
+  let shown = false;
+  function onParam(s, t, id, v) {
+    if (!shown || st.loading || (s === 0 && t !== st.t) || !((vkey(s, id)) in st.vals) || st.vals[vkey(s, id)] === v) return;
+    st.vals[vkey(s, id)] = v;
+    idle("sound", render);
+  }
+  d().on("param", onParam);
+
   async function open(t) {
+    shown = true;
     if (t != null) st.t = t;
     st.t = Math.min(st.t, d().ntrk - 1);
     await d().readNames(d().tracks[st.t].engine);
@@ -63,9 +73,9 @@ export function SoundScreen(ctx) {
     if (tab.slices) { st.loading = false; render(); await loadSlices(token); return; }
     st.loading = true; render();
     try {
-      await Promise.all(list.map(([s, id]) => d().describe(s, id)));
+      await Promise.all(list.map(([s, id]) => d().describe(s, id, st.t)));
       for (const [s, id] of list) {
-        const x = await d().describe(s, id);
+        const x = await d().describe(s, id, st.t);
         if (!visible(x) || vkey(s, id) in st.vals) continue;
         st.vals[vkey(s, id)] = s ? await d().getGlobal(id) : await d().getParam(st.t, id);
         if (token !== st.token) return;
@@ -75,7 +85,7 @@ export function SoundScreen(ctx) {
     st.loading = false; render();
   }
 
-  const cached = (s, id) => (d().descCache || {})[s + ":" + id];
+  const cached = (s, id) => d().cachedDesc(s, id, st.t);
   const text = (x, v) => { const [txt, unit] = A().fmtValue(x, v); return modName(x, txt) + (unit ? " " + unit : ""); };
   /* a matrix destination E1..E8 by the engine's own label of that parameter */
   function modName(x, txt) {
@@ -145,7 +155,7 @@ export function SoundScreen(ctx) {
   async function oops() {
     const t = st.t, pe0 = d().info.pe0;
     try {
-      const get = async (id) => { const x = await d().describe(0, id); return visible(x) ? { id, min: x.min, max: x.max, label: x.label, choice: x.fmt === A().F.ENUM || !!(x.names && x.names.length), value: await d().getParam(t, id) } : null; };
+      const get = async (id) => { const x = await d().describe(0, id, st.t); return visible(x) ? { id, min: x.min, max: x.max, label: x.label, choice: x.fmt === A().F.ENUM || !!(x.names && x.names.length), value: await d().getParam(t, id) } : null; };
       const eng = []; for (let k = 0; k < 8; k++) eng.push(await get(pe0 + k));
       const sends = []; for (const id of [33, 34, 35, 36]) sends.push(await get(id));
       const r = accident(eng, sends.map((s) => s || { id: 0, min: 0, max: 0, value: 0, label: "" }).filter((s) => s.max > s.min));
@@ -265,5 +275,5 @@ export function SoundScreen(ctx) {
     if (!d()) return;
     root.append(...[head(), body(), sheet()].filter(Boolean));
   }
-  return { el: root, open, render, leave() { fm6.leave(); } };
+  return { el: root, open, render, leave() { shown = false; fm6.leave(); } };
 }

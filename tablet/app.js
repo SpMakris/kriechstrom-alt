@@ -564,23 +564,26 @@ async function loadLocks() {
   try {
     const t = S.sel.t;
     S.locks = (await d.readLocks(t)).map((l) => ({ ...l, t }));
-    await ensureLockable();
+    await ensureLockable(t);
     updateAllSel();
     if (S.drawer && S.tab === "step" && !S.drag) renderDrawer();
   } catch (e) { /* no reply: locks are left out */ }
 }
-async function ensureLockable() {
-  if (S.lockable) return;
-  const d = dev(), { CMD, req, parse } = d.A, pe0 = d.info.pe0, ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 33, 34, 35, 36, 38, 39, 44];
+/* the parameters a lock or an event can target, as the engine of track t describes them (its own parameters differ per engine) */
+async function ensureLockable(t) {
+  const d = dev(), pe0 = d.info.pe0, eng = d.tracks[t].engine;
+  if (S.lockable && S.lockEng === eng) return;
+  const ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 33, 34, 35, 36, 38, 39, 44];
   for (let k = 0; k < 8; k++) ids.push(pe0 + k);
-  S.lockable = [];
+  const lockable = [], desc = {};
   for (const id of ids) {
     try {
-      const x = parse[CMD.DESC](await d.rq(req.desc(0, id)));
-      S.lockDesc[id] = x;
-      if (x.max > x.min && x.label !== "-") S.lockable.push(id);
+      const x = await d.describe(0, id, t);
+      desc[id] = x;
+      if (x && x.max > x.min && x.label !== "-") lockable.push(id);
     } catch (e) { /* skip */ }
   }
+  S.lockDesc = desc; S.lockable = lockable; S.lockEng = eng;
 }
 const lockName = (id) => { const x = S.lockDesc[id]; return x ? `${lockGroup(id)} ${x.label}` : "Parameter " + id; };
 
@@ -618,7 +621,7 @@ function locksEl(t, i) {
 
 /* ---- automation of a track: every lock and recorded event, as the machine keeps them ---- */
 async function loadAuto(t) {
-  try { await ensureLockable(); S.auto = { t, ...(await dev().readMotion(t)) }; } catch (e) { S.auto = { t, on: false, max: 0, recs: [], off: true }; }
+  try { await ensureLockable(t); S.auto = { t, ...(await dev().readMotion(t)) }; } catch (e) { S.auto = { t, on: false, max: 0, recs: [], off: true }; }
   if (S.drawer && S.tab === "track" && S.sub.track === "auto" && !S.drag) renderDrawer();
 }
 function autoEl(t) {

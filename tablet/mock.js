@@ -29,7 +29,7 @@ export function makeMock(A, opt = {}) {
       if (cmd === CMD.INFO) {                                    /* advertise the newer features this mock adds */
         const have = (t) => { for (let i = 0; i + 1 < a.length; i++) if (a[i] === t && a[i + 1] === 1) return true; return false; };
         if (!have(0x42)) { const k = a.findIndex((x, i) => x === 0x4D && a[i + 1] === 1 && a[i + 2] === 64); if (k >= 0) a.splice(k + 4, 0, 0x42, 1, 3); }   /* BACKUP caps follow the motion tag */
-        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(krst ? [0x58, 1, 127] : []), 0xF7]);
+        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(have(0x41) ? [] : [0x41, 1, 0, 1]), ...(krst ? [0x58, 1, 127] : []), 0xF7]);
         return;
       }
       if (cmd === CMD.TRACK_STEP || cmd === CMD.STEP_GET) {
@@ -245,5 +245,8 @@ export function makeMock(A, opt = {}) {
     else reply(CMD.MOTION, [t, 0, on, recs.length, 64, ...body]);
   }
 
-  return { perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
+  /* what the machine pushes when a knob is turned on it: CHANGED (the selected track's parameter, or a global) and TRACK_CHANGED */
+  const pushChanged = (scope, id, value) => reply(CMD.CHANGED, [scope, id, ...enc14(value)]);
+  const pushTrackChanged = (t, id, value) => reply(CMD.TRACK_CHANGED, [t, id, ...enc14(value)]);
+  return { pushChanged, pushTrackChanged, perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
 }

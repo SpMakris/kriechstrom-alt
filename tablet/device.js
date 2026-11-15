@@ -139,10 +139,30 @@ export class Device {
   }
 
   /* any parameter of any track (TRACK_PARAM), a global (GET/SET scope 1), descriptions, names, presets */
-  async describe(scope, id) {
-    const k = scope + ":" + id, { CMD, req, parse } = this.A;
+  /* The machine describes a track parameter for the track it has selected, and the engine's own parameters (P_E0 and up: KIT,
+   * TUNE, DECY of DRUM, WAVE, DTN of ANALOG...) are different for every engine. So an engine parameter is asked for with the track
+   * (t) selected first, and kept per engine: one answer per id would show every engine the labels, ranges and choices of the first
+   * engine that was asked. One request at a time, so no other select can come between the select and the question. */
+  descKey(scope, id, t) {
+    const eng = scope === 0 && t != null && this.info && id >= this.info.pe0 && this.tracks[t] ? this.tracks[t].engine : null;
+    return scope + ":" + id + (eng != null ? "@" + eng : "");
+  }
+  cachedDesc(scope, id, t) { return (this.descCache || {})[this.descKey(scope, id, t)]; }
+  async describe(scope, id, t) {
+    const k = this.descKey(scope, id, t), { CMD, req, parse } = this.A;
     this.descCache ||= {};
-    if (!(k in this.descCache)) { try { this.descCache[k] = parse[CMD.DESC](await this.rq(req.desc(scope, id))); } catch (e) { this.descCache[k] = null; } }
+    if (k in this.descCache) return this.descCache[k];
+    const perEngine = k.includes("@");
+    const ask = async () => {
+      if (k in this.descCache) return;
+      try {
+        if (perEngine) await this.selectTrack(t, true);
+        this.descCache[k] = parse[CMD.DESC](await this.rq(req.desc(scope, id)));
+      } catch (e) { this.descCache[k] = null; }
+    };
+    const run = (this.descQ || Promise.resolve()).then(ask, ask);
+    this.descQ = run.catch(() => {});
+    await run;
     return this.descCache[k];
   }
   async getParam(t, id) { const { CMD, req, parse } = this.A; return parse[CMD.TRACK_PARAM](await this.rq(req.trackParam(t, id))).value; }
@@ -167,8 +187,8 @@ export class Device {
     }
     return this.names[e];
   }
-  async selectTrack(t) {
-    if (this.sel === t) return;
+  async selectTrack(t, force) {
+    if (this.sel === t && !force) return;
     const { CMD, req, parse } = this.A;
     const r = parse[CMD.TRACK](await this.rq(req.track(t)));
     this.sel = r.sel;
@@ -327,17 +347,21 @@ export class Device {
       const r = parse[CMD.CHANGED](f.a);
       if (r.scope === 1 && r.id === GID.BPM && this.global.bpm !== r.value) { this.global.bpm = r.value; this.emit("global"); }
       if (r.scope === 1 && r.id === GID.CLK && this.global.clk !== r.value) { this.global.clk = r.value; this.emit("global"); }
-      if (r.scope === 0) this.applyParam(this.sel, r.id, r.value);
+      if (r.scope === 0) { this.applyParam(this.sel, r.id, r.value); this.emit("param", 0, this.sel, r.id, r.value); }
+      else this.emit("param", 1, null, r.id, r.value);
     } else {
       const r = parse[CMD.TRACK_CHANGED](f.a);
       this.applyParam(r.track, r.id, r.value);
+      this.emit("param", 0, r.track, r.id, r.value);
     }
   }
   applyParam(t, id, v) {
     const tr = this.tracks[t];
     if (!tr) return;
-    const key = id === PID.LEN ? "len" : id === PID.DIV ? "div" : id === PID.SWG ? "swing" : id === PID.GATE ? "gate" : id === this.qntzId ? "qntz" : null;
-    if (!key || tr[key] === v) return;                   /* not shown, or already so: nothing to announce */
+    const key = id === PID.LEVEL ? "level" : id === 40 ? "mute" : id === this.pan ? "pan" : id === PID.LEN ? "len" : id === PID.DIV ? "div" : id === PID.SWG ? "swing" : id === PID.GATE ? "gate" : id === this.qntzId ? "qntz" : null;
+    if (!key) return;
+    if (key === "mute") v = v ? true : false;          /* (P_MUTE 40: the track's mute) */
+    if (tr[key] === v) return;                          /* already so: nothing to announce */
     tr[key] = v;
     this.emit("tracks");
   }
