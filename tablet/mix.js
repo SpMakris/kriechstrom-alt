@@ -84,10 +84,15 @@ export function MixScreen(ctx) {
   }
   strip.nodes = [];
 
+  /* what the strips show: refresh() rebuilds them only when it changed (every machine report used to rebuild them, and a tap
+   * that straddled a rebuild was lost) */
+  const shown = () => JSON.stringify(Array.from({ length: d().ntrk }, (_, t) => { const r = d().tracks[t]; return [r.level, r.mute, r.pan, r.name, r.engineName]; }));
+  let sig = "";
   function render() {
     root.replaceChildren();
     if (!d()) return;
+    sig = shown();
     root.append(...Array.from({ length: d().ntrk }, (_, t) => strip(t)));
   }
-  return { el: root, open, render, refresh() { if (!held && !dragging) render(); }, leave() {} };
+  return { el: root, open, render, refresh() { if (!held && !dragging && d() && shown() !== sig) render(); }, leave() {} };
 }

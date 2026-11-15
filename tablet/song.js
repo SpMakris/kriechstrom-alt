@@ -35,9 +35,11 @@ export function SongScreen(ctx) {
     clearInterval(st.timer); st.timer = setInterval(poll, 600);
     render();
   }
+  const key = () => JSON.stringify([st.secs, st.running, st.at, st.left, st.used, st.sel, st.lane, st.ready, st.busy]);
   async function poll() {
     if (!d() || st.busy) return;
-    try { const r = await ask(ops().get); take(r); if (r.secs.length !== st.secs.length && !st.running) st.secs = r.secs; render(); } catch (e) { /* the status bar says */ }
+    /* the screen is only rebuilt when what it shows changed: a rebuild every poll replaced the button under a finger and the tap was lost */
+    try { const was = key(); const r = await ask(ops().get); take(r); if (r.secs.length !== st.secs.length && !st.running) st.secs = r.secs; if (key() !== was) render(); } catch (e) { /* the status bar says */ }
   }
   async function push(next) {
     st.busy = true;
