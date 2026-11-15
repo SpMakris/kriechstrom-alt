@@ -145,6 +145,7 @@ static struct {
     int16_t tv[ED_NT];                                   /* v4: trk[k].p[ED_TIDS[j]] at k * 3 + j */
     uint16_t tt[ED_NT];
     uint32_t tpos;
+    uint16_t kg;                                         /* the USER kit: dv_ugen and the saved kits when last pushed (editor_kit.c) */
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
@@ -154,6 +155,8 @@ static uint32_t ed_step_sig(const step_t *s)
            ((uint32_t)s->n << 28) ^ ((uint32_t)s->time * 0x9E3779B1u) ^ ((uint32_t)s->flags * 0x85EBCA6Bu) ^
            ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u);
 }
+enum { ED_KIT_CHANGED = 93 };                         /* (the push of editor_kit.c) */
+static uint32_t ed_kit_sig(void);
 static void ed_shadow(void)                              /* the editor is in sync */
 {
     uint32_t i;
@@ -166,6 +169,7 @@ static void ed_shadow(void)                              /* the editor is in syn
     ed_w.eng = (uint8_t)ed_eng(TSEL);
     ed_w.preset = TSEL->preset;
     ed_w.sel = song.sel;
+    ed_w.kg = (uint16_t)ed_kit_sig();
     sync_reload = 0;
 }
 /* the editor's own sound load on the selected track (PRESET, SET of G_ENGSEL): the editor re-reads DUMP after
@@ -254,6 +258,12 @@ static void ed_sync(void)                                /* main loop */
         ed_send();
         n++;
         ed_w.pos = k + 1u;
+    }
+    if ((uint16_t)ed_kit_sig() != ed_w.kg && ed_room()) {   /* the USER kit moved on the device (or its SAVE): one push */
+        ed_w.kg = (uint16_t)ed_kit_sig();
+        ed_begin(ED_KIT_CHANGED);
+        ed_b(dv_ugen); ed_b(uks.used & 127u); ed_b((uks.used >> UKS_SAVED) & 1u);
+        ed_send();
     }
     for (i = 0; ed_w.v4 && i < ED_NT && n < ED_PUSH_MAX; i++) {   /* v4: the other tracks' mix */
         uint32_t k = (ed_w.tpos + i) % ED_NT, tr = k / 3u, id = ED_TIDS[k % 3u];
@@ -355,6 +365,7 @@ static int ed_flash_stop(void)
 #include "editor_learn.c"                    /* 1.5: MIDI LEARN's map (cmds 78, 79) */
 #include "editor_palette.c"                  /* 1.6: CUSTOM, the user's palette (cmds 80, 81) */
 #include "editor_krst.c"                     /* tablet companion: PERF, KEYMAP, SLICE, DRUMMUTE, CLEARALL, MLEARN (cmds 82..87), HISS */
+#include "editor_kit.c"                      /* tablet companion: the USER drum kit (cmds 88..93) */
 
 /* MOTION's reply: the records of track k as (step, id, v14), a lock's id without its MOTION_LOCK bit (a 7-bit SysEx
  * byte); kinds (1.1: the ops 5..7): then one byte per record, in the same order, 0 automation, 1 lock. The query and
@@ -422,6 +433,8 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
         return n && (a[0] == 1u || a[0] == 5u || n == 1u);
     case ED_PERF: case ED_KEYMAP: case ED_SLICE: case ED_DRUMMUTE: case ED_CLEARALL: case ED_MLEARN:
         return ed_krst_args_ok(cmd, a, n);
+    case ED_KIT_LANE: case ED_KIT_SET: case ED_KIT_INFO: case ED_KIT_SLOT: case ED_KIT_SEED:
+        return ed_kit_args_ok(cmd, a, n);
     default:
         return 1;                                  /* variable payloads validate in their handler */
     }
@@ -449,6 +462,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_learn_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_palette_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_krst_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_kit_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
     case ED_MOTION: {
         track_t *t = &trk[a[0]]; uint32_t rc = 0;
@@ -497,6 +511,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x4B); ed_b(1); ed_b(NCOND);   /* 1.5.5: a step's condition (1..11) after its nudge */
         ed_b(0x45); ed_b(1); ed_b(ED_PAL_N);   /* 1.6: CUSTOM, the user's palette: 5 colours (cmds 80, 81; editor_palette.c) */
         ed_b(0x58); ed_b(1); ed_b(ED_K_CAPS);   /* tablet companion: PERF KEYMAP SLICE DRUMMUTE CLEARALL, HISS (editor_krst.c) */
+        ed_b(0x59); ed_b(1); ed_b(ED_KIT_CAPS);   /* USER drum kit: cmds 88..93 (editor_kit.c) */
         break;
     case ED_GET:
     case ED_SET:

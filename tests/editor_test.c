@@ -171,7 +171,7 @@ static int preferences(void)
     uint8_t a[4] = {0, 7, 0, 0};
     reset();
     uint32_t n = request(ED_INFO, a, 0);
-    uint32_t e = n - 9u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5, tablet: 58 01 caps last, below) */
+    uint32_t e = n - 12u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5, tablet: 58 01 caps last, below) */
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
         host_wire[e - 47] == CHAIN_ROWS && host_wire[e - 46] == 0x55 &&
@@ -192,9 +192,9 @@ static int preferences(void)
         host_wire[e - 7] == 0x56 && host_wire[e - 6] == 1 && host_wire[e - 5] == 32 &&   /* 1.4.1: FM6 voice bank */
         host_wire[e - 4] == 0x43 && host_wire[e - 3] == 1 && host_wire[e - 2] == ML_N);   /* 1.5: MIDI LEARN */
     bad += check("INFO 1.5.5: 4B 01 11, a step's condition after its nudge",
-        host_wire[n - 10] == 0x4B && host_wire[n - 9] == 1 && host_wire[n - 8] == NCOND);
+        host_wire[n - 13] == 0x4B && host_wire[n - 12] == 1 && host_wire[n - 11] == NCOND);
     bad += check("INFO 1.6: 45 01 5, CUSTOM's colours, before the tablet tag",
-        host_wire[n - 7] == 0x45 && host_wire[n - 6] == 1 && host_wire[n - 5] == 5);
+        host_wire[n - 10] == 0x45 && host_wire[n - 9] == 1 && host_wire[n - 8] == 5);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].c1);
@@ -712,6 +712,66 @@ static uint32_t sync_pass(void)                          /* one main-loop pass o
     ed_sync();
     host_drain();
     return host_wire_n;
+}
+
+/* the USER drum kit (editor_kit.c, cmds 88..93) */
+static void kit_v3(uint8_t *a, int32_t v) { uint32_t u = (uint32_t)(v + ED_KIT_OFS); a[0] = u & 127u; a[1] = (u >> 7) & 127u; a[2] = (u >> 14) & 127u; }
+static int kit_proto(void)
+{
+    int bad = 0;
+    uint8_t a[16];
+    const uint8_t *x = 0;
+    uint32_t n;
+    reset();
+    uks_boot();
+    n = request(ED_KIT_INFO, a, 0);
+    bad += check("KIT_INFO: 11 runs, 8 lanes, 7 saved kits, none used, 8 model kits", n > 20u && host_wire[5] == 11 && host_wire[6] == 8 && host_wire[7] == 7 &&
+                 host_wire[8] == 0 && host_wire[10] == 8 && !memcmp(host_wire + 11, "PUNCH", 6));
+    a[0] = 0; n = request(ED_KIT_LANE, a, 1);
+    bad += check("KIT_LANE 0: lane, the 80 kit's PUNCH, its fields with ranges (RUN first)", n > 40u && host_wire[5] == 0 && host_wire[6] == 0 && host_wire[7] == uk_count(0) &&
+                 host_wire[8] == UF_RUN && host_wire[9] + (host_wire[10] << 7) == ED_KIT_OFS);
+    a[0] = 0; a[1] = UF_GAIN; kit_v3(a + 2, 5000);
+    n = request(ED_KIT_SET, a, 5);
+    bad += check("KIT_SET: the field is written, the lane answered", n > 40u && uk_get(0, UF_GAIN) == 5000);
+    kit_v3(a + 2, 65000);
+    request(ED_KIT_SET, a, 5);
+    bad += check("KIT_SET: a value out of its range lands in it", uk_get(0, UF_GAIN) == UK_HEAD[UF_GAIN].hi);
+    a[1] = UF_V0 + 12;                                   /* (PUNCH has no V12: left as it is) */
+    kit_v3(a + 2, 5);
+    request(ED_KIT_SET, a, 5);
+    bad += check("KIT_SET: a field the run does not use is left", uk_get(0, UF_V0 + 12) == 0);
+    a[0] = 127; a[1] = 2; request(ED_KIT_SEED, a, 2);
+    bad += check("KIT_SEED 127, 2: every lane is the 10 kit", host_wire[5] == 0 && uk_get(0, UF_RUN) == (int32_t)uk_run_index(DV_KIT[1][0].run) && uk_get(3, UF_P16) == DV_KIT[1][3].p16);
+    a[0] = 0; a[1] = 5; a[2] = 1; request(ED_KIT_SEED, a, 3);
+    bad += check("KIT_SEED lane, 5, 1: lane 0 plays the 77 kit's lane 1", uk_get(0, UF_RUN) == (int32_t)uk_run_index(DV_KIT[4][1].run));
+    a[0] = 1; a[1] = 2; a[2] = 'Z'; a[3] = 'Y';
+    request(ED_KIT_SLOT, a, 4);
+    bad += check("KIT_SLOT SAVE 2: rc 0 (3, RAM only, on a host), K3 used", (host_wire[7] == 0 || host_wire[7] == 3) && (host_wire[8] & 4) && uks_valid(2) && !strcmp(uks.r[2].name, "ZY"));
+    a[0] = 0; a[1] = 3; a[2] = 1; request(ED_KIT_SEED, a, 3);
+    a[0] = 2; a[1] = 2; request(ED_KIT_SLOT, a, 2);
+    bad += check("KIT_SLOT LOAD 2: the saved kit is the working kit again", host_wire[7] == 0 && uk_get(0, UF_RUN) == (int32_t)uk_run_index(DV_KIT[4][1].run));
+    a[0] = 2; a[1] = 6; request(ED_KIT_SLOT, a, 2);
+    bad += check("KIT_SLOT LOAD of an empty kit: rc 1", host_wire[7] == 1);
+    a[0] = 1; a[1] = 9; a[2] = 'A'; request(ED_KIT_SLOT, a, 3);
+    bad += check("KIT_SLOT: a slot out of range: rc 1", host_wire[7] == 1);
+    a[0] = 3; a[1] = 2; request(ED_KIT_SLOT, a, 2);
+    bad += check("KIT_SLOT ERASE 2: rc 0 (3, RAM only), none used", (host_wire[7] == 0 || host_wire[7] == 3) && !uks_valid(2));
+    n = request(ED_KIT_LANE, a, 0);
+    bad += check("a bad frame (no lane) is dropped", n == 0u);
+    a[0] = 8; n = request(ED_KIT_LANE, a, 1);
+    bad += check("a bad lane is dropped", n == 0u);
+    /* the pushes: the device edits the kit (its knobs): KIT_CHANGED once */
+    usb.resets = 0;
+    a[0] = 1; request(ED_WATCH, a, 1);
+    bad += check("KIT_CHANGED: nothing while the kit is still", !sync_pass());
+    uk_set(2, UF_P16, uk_get(2, UF_P16) + 7);
+    bad += check("KIT_CHANGED: one push when the device moves a number", sync_pass() && wire_frames(ED_KIT_CHANGED, &x) == 1u && !sync_pass());
+    a[0] = 2; a[1] = UF_GAIN; kit_v3(a + 2, 4321);
+    request(ED_KIT_SET, a, 5);
+    bad += check("KIT_SET by the editor: no echo", !sync_pass());
+    uks_save(0, "Dev");
+    bad += check("KIT_CHANGED: a SAVE on the device is pushed too (the used mask)", sync_pass() && wire_frames(ED_KIT_CHANGED, &x) == 1u && x[1] == 1);
+    return bad;
 }
 
 /* #65: WATCH while watching keeps what is not pushed yet; the editor's own sound load is not echoed as RELOAD */
@@ -1355,7 +1415,9 @@ static int krst_ext(void)
     reset();
     n = request(ED_INFO, a, 0);
     bad += check("INFO: 58 01 caps last (PERF KEYMAP SLICE DRUMMUTE CLEARALL HISS MLEARN)",
-                 host_wire[n - 4] == 0x58 && host_wire[n - 3] == 1 && host_wire[n - 2] == ED_K_CAPS && ED_K_CAPS == 127u);
+                 host_wire[n - 7] == 0x58 && host_wire[n - 6] == 1 && host_wire[n - 5] == ED_K_CAPS && ED_K_CAPS == 127u);
+    bad += check("INFO: 59 01 caps last (the USER drum kit)",
+                 host_wire[n - 4] == 0x59 && host_wire[n - 3] == 1 && host_wire[n - 2] == ED_KIT_CAPS);
 
     /* PERF: query, set, echo, the audio side sees it, a bad frame is dropped, nothing stays held */
     n = request(ED_PERF, a, 0);
@@ -1591,7 +1653,7 @@ int main(void)
 {
     if (getenv("KRST_DESC_DUMP")) { desc_dump(); return 0; }
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
+              fm6_patches() + user_preset_roundtrip() + live_sync() + kit_proto() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol() + custom_palette();
     bad += krst_ext();                                   /* (after the others: its CLEAR ALL and sample upload change what they start from) */
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
