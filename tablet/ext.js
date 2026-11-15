@@ -1,7 +1,7 @@
 // The commands the upstream editor's protocol layer does not know yet (EDITOR_PROTOCOL.md): MENU settings, the FM6 voice bank,
 // MIDI LEARN, the CUSTOM palette and the backup list; plus the optional feature tags of INFO. Each call takes the Device.
 
-export const XC = { BACKUP_LIST: 65, MENU_DESC: 72, MENU_SET: 73, FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79, PALETTE_GET: 80, PALETTE_SET: 81 };
+export const XC = { BACKUP_LIST: 65, MENU_DESC: 72, MENU_SET: 73, FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79, PALETTE_GET: 80, PALETTE_SET: 81, PERF: 82, KEYMAP: 83, SLICE: 84, DRUMMUTE: 85, CLEARALL: 86, MLEARN: 87 };
 
 /* the tagged blocks of INFO's trailer: `tag 01 value`. Absent = the firmware has not got the feature. */
 export function tags(trailer) {
@@ -13,11 +13,19 @@ export function tags(trailer) {
     bank: at(0x56, (v) => v === 32),
     sections: at(0x57, (v) => v === 4),
     backup: at(0x42, (v) => v >= 1 && v <= 3),
+    krst: at(0x58, (v) => v > 0 && v <= 127),                    /* the tablet commands: bit 0 PERF, 1 KEYMAP, 2 SLICE, 3 DRUMMUTE, 4 CLEARALL, 5 HISS, 6 MLEARN */
     chain: trailer[0] === 16,
   };
 }
 
 const rc = (a) => a[0];
+/* the effects of the FX layer, by their number in the firmware (perform.c PF_*): the keys' map holds these */
+export const FX = ["REPEAT 1/8", "REPEAT 1/16", "REPEAT 1/32", "REVERSE", "LOW PASS", "HIGH PASS", "TAPE STOP", "FREEZE", "OCT UP", "OCT DOWN", "FLANGER", "PHASER", "REV THROW", "ECHO THROW", "ROLL", "GATE 1/32", "CRUSH SWEEP", "RANDOM"];
+export const FX_SHORT = ["1/8", "1/16", "1/32", "REV", "LPF", "HPF", "STOP", "FRZ", "OCT+", "OCT-", "FLNG", "PHSR", "VERB", "ECHO", "ROLL", "GATE", "CRSW", "RAND"];
+export const FX_NONE = 22;
+export const KRST = { PERF: 1, KEYMAP: 2, SLICE: 4, DRUMMUTE: 8, CLEARALL: 16, HISS: 32, MLEARN: 64 };
+const b3 = (n) => [n & 127, (n >> 7) & 127, (n >> 14) & 127];
+const r3 = (x, i) => x[i] | (x[i + 1] << 7) | (x[i + 2] << 14);
 const u32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
 
 export const Ext = {
@@ -88,6 +96,46 @@ export const Ext = {
     check(a[0], "end");
     return a[1];
   },
+
+  /* PERF: what the FX layer holds with a key (the effects as a bit mask), the four macros (FILTER -100..100, CRUSH, THROW,
+   * DEPTH 0..100), SOLO (a bit per track), FILL. The machine lets everything go 600 ms after the last frame: send it again
+   * while a finger is down. No state: only the answer. */
+  perfParse(a) {
+    return { mask: r3(a, 0), k: [a[3] * 2 - 100, a[4], a[5], a[6]], solo: a[7], fill: a[8], avail: r3(a, 9), act: r3(a, 12), device: r3(a, 15), latch: !!a[18], kill: !!a[19] };
+  },
+  async perf(d, s) {
+    const args = s ? [...b3(s.mask), Math.round((s.k[0] + 100) / 2), s.k[1], s.k[2], s.k[3], s.solo, s.fill ? 1 : 0] : [];
+    return Ext.perfParse(await d.rq([XC.PERF, args], { key: "perf", timeout: 400, retries: 0, quiet: true }));
+  },
+
+  /* the keys' map of the FX layer: 16 white keys F3..G5, each an effect (FX) or FX_NONE */
+  async keymap(d, op) {
+    const a = await d.rq([XC.KEYMAP, op ? (op.reset ? [127] : [op.key, op.fx]) : []]);
+    return { rc: a[0], map: a.slice(1, 17) };
+  },
+
+  /* MAN slices of a user slot 0..2: starts and end in samples; man false: the AUTO slices are shown */
+  sliceParse(a) {
+    const o = { slot: a[0], rc: a[1], man: !!a[2], len: r3(a, 3), n: a[6], end: r3(a, 7), pos: [] };
+    for (let i = 0; i < o.n; i++) o.pos.push(r3(a, 10 + 3 * i));
+    return o;
+  },
+  async slice(d, slot, set) {
+    const args = set ? [slot, set.pos.length, ...b3(set.end || 0), ...set.pos.flatMap(b3)] : [slot];
+    return Ext.sliceParse(await d.rq([XC.SLICE, args], { timeout: 1000 }));
+  },
+
+  /* DRUM lane mutes of a track: bit l = lane l muted */
+  async drumMute(d, track, mask) {
+    const a = await d.rq([XC.DRUMMUTE, mask == null ? [track] : [track, mask & 127, (mask >> 7) & 1]]);
+    return a[1] | (a[2] << 7);
+  },
+
+  /* CLEAR ALL: the music as a new project; stored projects, user presets, samples, settings and MIDI LEARN stay */
+  async clearAll(d) { return (await d.rq([XC.CLEARALL, [0x59]], { timeout: 3000, retries: 0 }))[0]; },
+
+  /* MIDI LEARN on / off (GLO + D4 on the machine); no argument reads it */
+  async mlearn(d, on) { return !!(await d.rq([XC.MLEARN, on == null ? [] : [on ? 1 : 0]]))[0]; },
 
   /* backup list (the manifest is parsed by fm1backup.js when a backup is taken) */
   async backupList(d) { return d.rq([XC.BACKUP_LIST, []], { timeout: 3000, retries: 0 }); },

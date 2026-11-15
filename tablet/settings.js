@@ -2,7 +2,7 @@
 // palette, MIDI learn, a full backup and restore, and facts about the firmware. Nothing scrolls: each group is a tab.
 
 import { el, ic, askSheet } from "./ui.js";
-import { Ext } from "./ext.js";
+import { Ext, KRST } from "./ext.js";
 
 const RC_SAVE = { 3: "Applied, but not saved: the machine has no flash or the write failed.", 4: "Applied. It is saved when the transport stops." };
 const ROLES = [["Background", "color1"], ["Identity", "color2"], ["Text", "color3"], ["Record and warnings", "primary"], ["Active", "secondary"]];
@@ -21,7 +21,7 @@ export function SettingsScreen(ctx) {
     const names = [];
     for (const it of st.items || []) if (!names.some((n) => n.tab === it.tab) && it.kind <= 1) names.push({ k: "m" + it.tab, tab: it.tab, label: it.tabName || "Settings" });
     names.sort((a, b) => a.tab - b.tab);
-    return [...names, ...(d().tags.palette ? [{ k: "pal", label: "Colours" }] : []), ...(d().tags.learn ? [{ k: "learn", label: "MIDI learn" }] : []), { k: "backup", label: "Backup" }, { k: "about", label: "About" }];
+    return [...names, ...(d().tags.palette ? [{ k: "pal", label: "Colours" }] : []), ...(d().tags.learn ? [{ k: "learn", label: "MIDI learn" }] : []), ...((d().tags.krst & KRST.CLEARALL) ? [{ k: "system", label: "System" }] : []), { k: "backup", label: "Backup" }, { k: "about", label: "About" }];
   };
 
   async function open() {
@@ -36,7 +36,7 @@ export function SettingsScreen(ctx) {
     st.tab = k; st.sheet = null; st.page = 0; render();
     try {
       if (k === "pal") st.pal = await Ext.paletteGet(d());
-      else if (k === "learn") { st.learn = (await Ext.learnGet(d())).list; labels().then(() => { if (st.tab === "learn") render(); }); }
+      else if (k === "learn") { st.learn = (await Ext.learnGet(d())).list; if (d().tags.krst & KRST.MLEARN) st.mlearn = await Ext.mlearn(d()); labels().then(() => { if (st.tab === "learn") render(); }); }
     } catch (e) { say(e.message, "error"); }
     render();
   }
@@ -108,6 +108,10 @@ export function SettingsScreen(ctx) {
     catch (e) { say(e.message, "error"); }
     render();
   }
+  async function toggleLearn() {
+    try { st.mlearn = await Ext.mlearn(d(), !st.mlearn); say(st.mlearn ? "MIDI learn is on: turn a knob on the machine, then send the CC" : "MIDI learn is off"); } catch (e) { say(e.message, "error"); }
+    render();
+  }
   function learnTab() {
     if (!st.learn) return el("div", { class: "empty" }, el("p", { text: "Reading..." }));
     const a = st.add, list = st.learn;
@@ -117,7 +121,9 @@ export function SettingsScreen(ctx) {
     return el("div", { class: "learnbody" },
       el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "Learned controllers" }), el("output", { text: `${list.length} of 16` })),
         list.length ? el("div", { class: "lrows" }, rows) : el("p", { class: "hint", text: "No controller is mapped. Add one on the right, or turn on MIDI LEARN on the machine (GLO and D4)." }),
-        el("button", { class: "btn", disabled: !list.length, onclick: () => { st.sheet = { learnall: true }; render(); }, text: "Forget all" })),
+        el("div", { class: "row" },
+          (d().tags.krst & KRST.MLEARN) ? el("button", { class: "btn grow", "aria-pressed": String(!!st.mlearn), title: "The machine's own MIDI LEARN: turn a knob, then send the CC", onclick: toggleLearn, text: st.mlearn ? "Learn mode: on" : "Learn mode: off" }) : null,
+          el("button", { class: "btn grow", disabled: !list.length, onclick: () => { st.sheet = { learnall: true }; render(); }, text: "Forget all" }))),
       el("div", { class: "card" }, el("div", { class: "lab", text: "Map a controller" }),
         el("div", { class: "field" }, el("span", { class: "nm", text: "CC number" }), el("div", { class: "stepper" },
           el("button", { "aria-label": "Previous CC", onclick: () => { a.cc = (a.cc + 126) % 128; render(); } }, ic("minus")), el("output", { text: String(a.cc) }), el("button", { "aria-label": "Next CC", onclick: () => { a.cc = (a.cc + 1) % 128; render(); } }, ic("plus")))),
@@ -163,10 +169,22 @@ export function SettingsScreen(ctx) {
         el("button", { class: "btn", disabled: !put, onclick: () => backFile.click(), text: put ? "Choose a backup file" : "Not on this firmware" })), backFile);
   }
 
+  /* ------------------------------------------------------------- system --- */
+  function systemTab() {
+    return el("div", { class: "palbody" },
+      el("div", { class: "card" }, el("div", { class: "lab", text: "Start over" }),
+        el("p", { class: "hint", text: "CLEAR ALL makes the music a new project: every track back to its power-on sound with no steps or automation, the song order, tempo and the rest of the project at their defaults. The stored projects A to D, user sounds, samples, settings and MIDI learn stay. Take a backup first if the music matters." }),
+        el("button", { class: "btn red", onclick: () => { st.sheet = { clearall: true }; render(); }, text: "Clear all" })));
+  }
+  async function clearAll() {
+    try { const rc = await Ext.clearAll(d()); if (rc) say("The machine refused to clear", "error"); else { say("All cleared: the machine is a new project"); await d().reload(); } } catch (e) { say(e.message, "error"); }
+    render();
+  }
+
   /* ------------------------------------------------------------- about --- */
   function aboutTab() {
     const i = d().info, t = d().tags;
-    const feat = [["Song sections", t.sections], ["Song chain", t.chain], ["Menu settings", t.menu], ["MIDI learn", t.learn], ["Custom palette", t.palette], ["FM6 engine", d().hasFm6], ["FM6 voice bank", t.bank], ["Backup", i.backupCaps & 1], ["Restore", i.backupCaps & 2], ["Parameter locks", d().caps.locks], ["Conditions", d().caps.cond], ["Nudge", d().caps.nudge]];
+    const feat = [["Song sections", t.sections], ["Song chain", t.chain], ["Menu settings", t.menu], ["MIDI learn", t.learn], ["Custom palette", t.palette], ["FM6 engine", d().hasFm6], ["FM6 voice bank", t.bank], ["Backup", i.backupCaps & 1], ["Restore", i.backupCaps & 2], ["Parameter locks", d().caps.locks], ["Conditions", d().caps.cond], ["Nudge", d().caps.nudge], ["Perform and key map", t.krst & KRST.PERF], ["Slice points", t.krst & KRST.SLICE], ["Clear all", t.krst & KRST.CLEARALL]];
     return el("div", { class: "palbody" },
       el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "Firmware" }), el("output", { text: i.version })),
         el("p", { class: "hint", text: `${i.nengines} engines, ${i.pcount} track parameters, ${i.gcount} global parameters, ${i.nstep} steps, ${d().ntrk} tracks.` }),
@@ -180,6 +198,7 @@ export function SettingsScreen(ctx) {
     const no = () => { st.sheet = null; render(); };
     if (s.usb) return askSheet({ title: "Change USB SERIAL?", text: "The machine disconnects from USB and comes back about a second later. The tablet has to connect again.", yes: "Change", danger: true, onNo: no, onYes: () => { st.sheet = null; setItem(s.usb, s.v); } });
     if (s.restore) return askSheet({ title: "Restore " + s.name + "?", text: "Everything in the file replaces what the machine has: the music playing now, the settings, the projects, the user sounds and the samples.", yes: "Restore", danger: true, onNo: no, onYes: () => { const t = s.restore; st.sheet = null; restore(t); } });
+    if (s.clearall) return askSheet({ title: "Clear all?", text: "The music on the machine becomes a new project. Stored projects, user sounds, samples and settings stay. This cannot be undone.", yes: "Clear all", danger: true, onNo: no, onYes: () => { st.sheet = null; clearAll(); } });
     if (s.learnall) return askSheet({ title: "Forget every controller?", text: "All learned CC mappings are removed.", yes: "Forget all", danger: true, onNo: no, onYes: () => { st.sheet = null; learn(2); } });
     const grid = (title, items, cur, onPick) => {
       const per = 18, pages = Math.max(1, Math.ceil(items.length / per)), p = Math.min(st.page, pages - 1);
@@ -201,7 +220,7 @@ export function SettingsScreen(ctx) {
     let content;
     if (!st.items) content = el("div", { class: "empty" }, el("p", { text: "Reading..." }));
     else if (st.tab && st.tab[0] === "m") content = menuTab(+st.tab.slice(1));
-    else content = { pal: palTab, learn: learnTab, backup: backupTab, about: aboutTab }[st.tab]?.() || el("div", { class: "empty" });
+    else content = { pal: palTab, learn: learnTab, system: systemTab, backup: backupTab, about: aboutTab }[st.tab]?.() || el("div", { class: "empty" });
     const busy = st.busy ? el("div", { class: "busy", role: "status" }, el("b", { text: st.busy }), el("progress", { max: "1", value: String(st.prog || 0) })) : null;
     root.append(...[el("div", { class: "sbody" }, rail, content), sheet(), busy].filter(Boolean));
   }

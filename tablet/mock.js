@@ -4,7 +4,8 @@
 
 const HDR = [0x7D, 0x46, 0x4C];
 
-export function makeMock(A) {
+export function makeMock(A, opt = {}) {
+  const krst = opt.krst !== false;                              /* false: a firmware without the tablet commands (INFO 58) */
   const base = A.makeMockDevice();
   const bOut = [...base.access.outputs.values()][0];
   const bIn = [...base.access.inputs.values()][0];
@@ -28,7 +29,7 @@ export function makeMock(A) {
       if (cmd === CMD.INFO) {                                    /* advertise the newer features this mock adds */
         const have = (t) => { for (let i = 0; i + 1 < a.length; i++) if (a[i] === t && a[i + 1] === 1) return true; return false; };
         if (!have(0x42)) { const k = a.findIndex((x, i) => x === 0x4D && a[i + 1] === 1 && a[i + 2] === 64); if (k >= 0) a.splice(k + 4, 0, 0x42, 1, 3); }   /* BACKUP caps follow the motion tag */
-        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), 0xF7]);
+        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(krst ? [0x58, 1, 127] : []), 0xF7]);
         return;
       }
       if (cmd === CMD.TRACK_STEP || cmd === CMD.STEP_GET) {
@@ -72,6 +73,8 @@ export function makeMock(A) {
     }
     if (cmd === CMD.MOTION) { motion(a); return; }
     if (cmd >= 65 && cmd <= 67 || (bk.restoring && cmd >= 11 && cmd <= 14)) { backupOp(cmd, a); return; }
+    if (krst && cmd >= 82 && cmd <= 87) { tab(cmd, a); return; }
+    if (krst && (cmd === CMD.GET || cmd === CMD.SET || cmd === CMD.DESC) && a[0] === 1 && a[1] === 27) { hissOp(cmd, a); return; }
     if (cmd >= 72 && cmd <= 81) { extra(cmd, a); return; }
     if (cmd === CMD.SONG && a[0] >= 4) { songOp(a); return; }
     bOut.send(Uint8Array.from(d));
@@ -136,6 +139,69 @@ export function makeMock(A) {
     }
   }
 
+  /* the tablet commands (editor_krst.c): PERF 82, KEYMAP 83, SLICE 84, DRUMMUTE 85, CLEARALL 86, and HISS (global 27) */
+  const perf = { mask: 0, k: [0, 0, 0, 0], solo: 0, fill: 0, timer: null, log: [] };
+  const keymap = Array.from({ length: 16 }, (_, i) => i);
+  const dmute = [0, 0, 0, 0];
+  const slice = [{ len: 512, man: false, end: 0, pos: [0, 128, 256, 384] }, null, null];
+  const hiss = { v: 0 };
+  const b3 = (n) => [n & 127, (n >> 7) & 127, (n >> 14) & 127];
+  const r3 = (x, i) => x[i] | (x[i + 1] << 7) | (x[i + 2] << 14);
+  const wire = { clears: 0, learn: false };
+  function perfReply() {
+    reply(82, [...b3(perf.mask), (perf.k[0] + 100) / 2, perf.k[1], perf.k[2], perf.k[3], perf.solo, perf.fill, ...b3(0x3FFFF), ...b3(perf.mask), ...b3(0), 0, 0]);
+  }
+  function tab(cmd, a) {
+    if (cmd === 82) {
+      if (a.length === 9) {
+        if (a[2] > 15 || a[3] > 100 || a[4] > 100 || a[5] > 100 || a[6] > 100 || a[7] > 15 || a[8] > 1) return;
+        perf.mask = r3(a, 0); perf.k = [a[3] * 2 - 100, a[4], a[5], a[6]]; perf.solo = a[7]; perf.fill = a[8]; perf.log.push([...a]);
+        clearTimeout(perf.timer);
+        perf.timer = setTimeout(() => { perf.mask = 0; perf.k = [0, 0, 0, 0]; perf.solo = 0; perf.fill = 0; }, 600);
+        if (perf.timer.unref) perf.timer.unref();
+      } else if (a.length) return;
+      perfReply();
+    } else if (cmd === 83) {
+      let rc = 0;
+      if (a.length === 2) { if (a[0] > 15 || !(a[1] < 18 || a[1] === 22)) return; keymap[a[0]] = a[1]; }
+      else if (a.length === 1 && a[0] === 127) keymap.forEach((_, i) => { keymap[i] = i; });
+      else if (a.length) return;
+      reply(83, [rc, ...keymap]);
+    } else if (cmd === 84) {
+      const k = a[0], s = slice[k];
+      let rc = s ? 0 : 1;
+      if (a.length > 1 && s) {
+        const n = a[1];
+        if (a.length !== 5 + 3 * n || n > 32) return;
+        if (n === 0) { s.man = false; s.pos = [0, 128, 256, 384]; s.end = 0; }
+        else {
+          const pos = Array.from({ length: n }, (_, i) => r3(a, 5 + 3 * i)), end = r3(a, 2), e = end || s.len;
+          if (end > s.len || pos.some((p, i) => p >= e || e - p < 64 || (i && p - pos[i - 1] < 64))) rc = 2;
+          else { s.man = true; s.pos = pos; s.end = end; }
+        }
+      } else if (a.length !== 1) return;
+      if (!s || rc === 1) return reply(84, [k, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+      reply(84, [k, rc, s.man ? 1 : 0, ...b3(s.len), s.pos.length, ...b3(s.end), ...s.pos.flatMap(b3)]);
+    } else if (cmd === 85) {
+      if (a[0] >= 4 || !(a.length === 1 || (a.length === 3 && a[2] <= 1))) return;
+      if (a.length === 3) dmute[a[0]] = a[1] | (a[2] << 7);
+      reply(85, [a[0], dmute[a[0]] & 127, dmute[a[0]] >> 7]);
+    } else if (cmd === 87) {
+      if (a.length > 1 || (a.length && a[0] > 1)) return;
+      if (a.length) wire.learn = !!a[0];
+      reply(87, [wire.learn ? 1 : 0]);
+    } else if (cmd === 86) {
+      if (a.length !== 1 || a[0] !== 0x59) return;
+      steps.forEach((m) => m.clear()); locks.forEach((l) => { l.length = 0; }); autos.forEach((l) => { l.length = 0; }); hiss.v = 0; wire.clears++;
+      reply(86, [0]);
+    }
+  }
+  function hissOp(cmd, a) {
+    if (cmd === CMD.SET && a.length >= 4) hiss.v = Math.max(0, Math.min(127, v14(a[2], a[3])));
+    if (cmd === CMD.DESC) return reply(CMD.DESC, [1, 27, A.F.PCT ?? 1, ...enc14(0), ...enc14(127), ...enc14(0), ...strB("HISS"), ...strB("")]);
+    reply(cmd, [1, 27, ...enc14(hiss.v)]);
+  }
+
   function v14(lo, hi) { return (lo | (hi << 7)) - 8192; }
   function enc14(v) { const u = Math.max(-8192, Math.min(8191, v)) + 8192; return [u & 0x7F, (u >> 7) & 0x7F]; }
   /* the whole-machine backup (BACKUP 65..67): 13 objects of fixed bytes; a restore stages, checks the CRC and replaces */
@@ -179,5 +245,5 @@ export function makeMock(A) {
     else reply(CMD.MOTION, [t, 0, on, recs.length, 64, ...body]);
   }
 
-  return { access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
+  return { perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
 }

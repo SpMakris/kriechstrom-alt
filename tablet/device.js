@@ -23,11 +23,11 @@ export class Device {
   emit(name, ...args) { for (const fn of this.listeners[name] || []) fn(...args); }
   say(text, kind = "info") { this.emit("status", text, kind); }
 
-  async connect({ mock = false } = {}) {
+  async connect({ mock = false, krst = true } = {}) {
     this.say("Connecting");
     const A = this.A = await loadProtocol();
     let access;
-    if (mock) { this.mock = makeMock(A); access = this.mock.access; }
+    if (mock) { this.mock = makeMock(A, { krst }); access = this.mock.access; }
     else {
       if (!navigator.requestMIDIAccess) throw new Error(window.isSecureContext
         ? "This browser has no WebMIDI. Use Chrome or Edge."

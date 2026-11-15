@@ -8,6 +8,7 @@ import { MidiClock } from "./clock.js";
 import { el, ic } from "./ui.js";
 import { MixScreen } from "./mix.js";
 import { SoundScreen } from "./sound.js";
+import { PerformScreen } from "./perform.js";
 import { CONDITIONS, TIME, FLAG, togglePitch, toggleLane, stepLaneMask, emptyStep } from "./steps.js";
 import { Tools, MOODS, SCALE_BITS, reverseSrc, shiftSrc } from "./tools.js";
 
@@ -26,7 +27,7 @@ const S = {
 const root = $("#app");
 let barEl, boardEl, rowsEl, drawerEl;
 const screens = {};
-const SCREENS = [["jam", "Jam"], ["mix", "Mix"], ["sound", "Sound"], ["song", "Song"], ["library", "Library"], ["settings", "Settings"]];
+const SCREENS = [["jam", "Jam"], ["perform", "Perform"], ["mix", "Mix"], ["sound", "Sound"], ["song", "Song"], ["library", "Library"], ["settings", "Settings"]];
 
 /* ------------------------------------------------------------ helpers --- */
 const dev = () => S.dev;
@@ -82,7 +83,7 @@ function buildShell() {
   drawerEl = el("aside", { class: "drawer", "aria-label": "Step and track options" });
   boardEl = el("main", { class: "board" }, rowsEl, drawerEl);
   const ctx = { dev, say, hand: () => S.hand, goto };
-  screens.mix = MixScreen(ctx); screens.sound = SoundScreen(ctx); screens.song = SongScreen(ctx); screens.library = LibraryScreen(ctx); screens.settings = SettingsScreen(ctx);
+  screens.perform = PerformScreen(ctx); screens.mix = MixScreen(ctx); screens.sound = SoundScreen(ctx); screens.song = SongScreen(ctx); screens.library = LibraryScreen(ctx); screens.settings = SettingsScreen(ctx);
   S.screen = "jam";
   root.replaceChildren(barEl, boardEl);
   renderBar(); renderRows(); renderDrawer();
@@ -105,12 +106,13 @@ function renderBar() {
   const canClock = g.ok;
   barEl.replaceChildren(...[
     el("span", { class: "brand", text: "KRIECHSTROM" }),
-    el("nav", { class: "nav", "aria-label": "Screens" }, SCREENS.map(([k, label]) => el("button", { "aria-current": String(S.screen === k), onclick: () => goto(k), text: label }))),
+    el("nav", { class: "nav", "aria-label": "Screens" }, SCREENS.filter(([k]) => k !== "perform" || (d.tags.krst & 1)).map(([k, label]) => el("button", { "aria-current": String(S.screen === k), onclick: () => goto(k), text: label }))),
     el("button", { class: "btn play" + (run ? " run" : ""), "aria-label": run ? "Stop" : "Play", disabled: !canClock, onclick: togglePlay }, ic(run ? "stop" : "play")),
     el("div", { class: "bpm" },
       el("button", { "aria-label": "Slower", onclick: () => setBpm(bpm() - 1), onpointerdown: (e) => holdRepeat(e, () => setBpm(bpm() - 1)) }, ic("minus")),
       el("output", { "aria-label": "Tempo" }, String(bpm()), el("small", { text: "BPM" })),
-      el("button", { "aria-label": "Faster", onclick: () => setBpm(bpm() + 1), onpointerdown: (e) => holdRepeat(e, () => setBpm(bpm() + 1)) }, ic("plus"))),
+      el("button", { "aria-label": "Faster", onclick: () => setBpm(bpm() + 1), onpointerdown: (e) => holdRepeat(e, () => setBpm(bpm() + 1)) }, ic("plus")),
+      el("button", { class: "tap", "aria-label": "Tap tempo", title: "Tap the beat: the tempo follows", onclick: tapTempo, text: "Tap" })),
     el("button", { class: "switch", role: "switch", "aria-checked": String(S.clockOn), disabled: !canClock, onclick: toggleClockMode },
       el("span", { class: "tr" }), "Tablet clock"),
     S.clockOn && S.clock && S.clock.late ? el("span", { class: "clockwarn", text: "Browser is slowing the clock: keep this tab in front" }) : null,
@@ -118,6 +120,13 @@ function renderBar() {
     el("span", { class: "status" + (S.status.kind === "error" ? " error" : ""), role: "status", "aria-live": "polite", text: S.status.text })].filter(Boolean));
 }
 
+/* tap tempo: the mean gap of the last taps (a pause of two seconds starts again) */
+function tapTempo() {
+  const now = performance.now(), t = (S.taps ||= []);
+  if (t.length && now - t[t.length - 1] > 2000) t.length = 0;
+  t.push(now); if (t.length > 6) t.shift();
+  if (t.length >= 2) setBpm(Math.round(60000 / ((t[t.length - 1] - t[0]) / (t.length - 1))));
+}
 const bpm = () => (S.clock ? S.clock.bpm : dev().global.bpm);
 function setBpm(v) { v = Math.max(40, Math.min(240, v)); if (!S.clock) ensureClock(); S.clock.setBpm(v); dev().global.bpm = v; renderBar(); }
 function holdRepeat(e, fn) {                                  /* press and hold repeats */

@@ -4,6 +4,7 @@
 import { el, ic } from "./ui.js";
 import { Fm6Screen } from "./fm6.js";
 import { accident } from "./tools.js";
+import { Ext, KRST } from "./ext.js";
 
 /* the machine's own short tags, spelled out where the meaning is certain; anything else keeps its tag */
 const WORDS = { CUT: "Cutoff", RES: "Resonance", DRV: "Drive", KTR: "Key track", DTN: "Detune", ATK: "Attack", DEC: "Decay", SUS: "Sustain", REL: "Release", FDBK: "Feedback", NOIS: "Noise" };
@@ -16,11 +17,12 @@ function tabsFor(d, t) {
     ...(eng === "FM6" && d.hasFm6 ? [{ k: "fm6", label: "FM6 voice", fm6: true }] : []),
     { k: "tone", label: "Tone", cards: [{ title: ti[0] || "Edit 1", ids: P([pe0, pe0 + 1, pe0 + 2, pe0 + 3]) }, { title: ti[1] || "Edit 2", ids: P([pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]) },
       ...(pe0 >= 91 && eng === "DRUM" ? [{ title: "Lanes", ids: P(LANE_IDS.slice(0, 4)) }, { title: "Lanes 2", ids: P(LANE_IDS.slice(4)) }] : [])] },
+    ...(eng === "SLICE" && (d.tags.krst & KRST.SLICE) ? [{ k: "slices", label: "Slices", slices: true }] : []),
     { k: "env", label: "Envelope", cards: [{ title: "Envelope", ids: P([1, 2, 3, 4]) }, { title: "Envelope to", ids: P([5, 6, 7, 8]) }, { title: "Filter and timing", ids: Q([101, 102]) }] },
     { k: "lfo", label: "LFO", cards: [{ title: "LFO", ids: P([9, 10, 11, 12]) }, { title: "LFO to", ids: P([13, 14, 15, 16]) }, { title: "LFO sync", ids: Q([91, 92, 93]) }] },
     { k: "voice", label: "Voice", cards: [{ title: "Level and voice", ids: P([0, 37, 38, 41, 42]) }, { title: "Voice 2", ids: P([43, 44, 39, 40]) }, { title: "Spread and timing", ids: Q([95, 94]) }, { title: "Aftertouch", ids: Q([103, 104, 105]) }] },
     { k: "fx", label: "Effects", cards: [{ title: "Effect", ids: P([33, 34, 35, 36]) }, { title: "Slicer", ids: P([45, 46, 47, 48]) }, { title: "Insert", ids: Q([96, 97, 98, 99, 100]) }] },
-    { k: "space", label: "Space", cards: [{ title: "Delay", ids: G([4, 5, 6, 7]), col: 0 }, { title: "Reverb", ids: G([24, 8, 9]), col: 1 }, { title: "Chorus", ids: G([10, 11]), col: 0 }, { title: "Damage", ids: G([25, 26, 21]), col: 1 }] },
+    { k: "space", label: "Space", cards: [{ title: "Delay", ids: G([4, 5, 6, 7]), col: 0 }, { title: "Reverb", ids: G([24, 8, 9]), col: 1 }, { title: "Chorus", ids: G([10, 11]), col: 0 }, { title: "Damage", ids: [...G([25, 26, 21]), ...((d.tags.krst & KRST.HISS) ? G([d.info.gcount]) : [])], col: 1 }] },
     { k: "scale", label: "Scale", cards: [{ title: "Scale", ids: P([25, 26, 27, 28]) }, ...(pe0 >= 83 ? [{ title: "Chord", ids: P([81, 82]) }] : [])] },
     { k: "arp", label: "Arp", cards: [{ title: "Arp", ids: P([17, 18, 19, 20]) }, { title: "Arp 2", ids: P([21, 22, 23, 24]) }] },
   ];
@@ -58,6 +60,7 @@ export function SoundScreen(ctx) {
     fm6.leave();
     const { tab, list } = ids();
     if (tab.fm6) { st.loading = false; render(); fm6.open(st.t); return; }
+    if (tab.slices) { st.loading = false; render(); await loadSlices(token); return; }
     st.loading = true; render();
     try {
       await Promise.all(list.map(([s, id]) => d().describe(s, id)));
@@ -151,6 +154,58 @@ export function SoundScreen(ctx) {
     } catch (e) { ctx.say(e.message, "error"); }
   }
 
+  /* ---- SLICE: the slice starts by hand (the machine's SLICES page): a table of starts, in samples, of a user sample ---- */
+  const SLC_MIN = 64, SLC_AUTO = 32, SLC_DIV_MAN = 5;
+  async function loadSlices(token) {
+    const sl = (st.sl = { slot: null, data: null, sel: 0, step: 512, err: "" });
+    try {
+      const src = await d().getParam(st.t, d().info.pe0);
+      if (token !== st.token) return;
+      if (src >= 1 && src <= 3) { sl.slot = src - 1; sl.data = await Ext.slice(d(), sl.slot); sl.sel = 0; }
+    } catch (e) { sl.err = e.message; ctx.say(e.message, "error"); }
+    if (token === st.token) render();
+  }
+  async function putSlices(pos, end) {
+    const sl = st.sl;
+    try {
+      const r = await Ext.slice(d(), sl.slot, { pos, end });
+      if (r.rc === 2) { ctx.say("Those slice starts do not fit the sample: each slice needs at least " + SLC_MIN + " samples.", "error"); return; }
+      sl.data = r;
+      const e = d().info.pe0 + 1;                                   /* the slices only play with DIV set to MAN */
+      if ((await d().getParam(st.t, e)) !== SLC_DIV_MAN) { await d().setParam(st.t, e, SLC_DIV_MAN); st.vals[vkey(0, e)] = SLC_DIV_MAN; ctx.say("DIV is now MAN: the machine plays your slices"); }
+    } catch (x) { ctx.say(x.message, "error"); }
+    render();
+  }
+  function slicesEl() {
+    const sl = st.sl;
+    if (!sl) return el("div", { class: "empty" }, el("p", { text: "Reading..." }));
+    if (sl.err) return el("div", { class: "empty" }, el("p", { text: "Could not read the slices: " + sl.err }));
+    if (sl.slot == null) return el("div", { class: "empty" }, el("h2", { text: "Pick a user sample" }), el("p", { text: "Slice points are set on a sample you uploaded. Choose USR1, USR2 or USR3 as the SRC of this sound (Tone group)." }));
+    const D = sl.data;
+    if (D.rc === 1) return el("div", { class: "empty" }, el("h2", { text: "USR" + (sl.slot + 1) + " is empty" }), el("p", { text: "Upload a sample to this slot first." }));
+    const n = D.pos.length, j = Math.min(sl.sel, n - 1), e = D.end || D.len, pos = D.pos;
+    const lo = j ? pos[j - 1] + SLC_MIN : 0, hi = (j + 1 < n ? pos[j + 1] : e) - SLC_MIN;
+    const len = (k) => (k + 1 < n ? pos[k + 1] : e) - pos[k];
+    const set = (v) => { const p = [...pos]; p[j] = Math.max(lo, Math.min(hi, v)); putSlices(p, D.end); };
+    const chips = el("div", { class: "chips", role: "group", "aria-label": "Slices" }, pos.map((_, k) => el("button", { class: "chip", "aria-pressed": String(k === j), text: String(k + 1), onclick: () => { sl.sel = k; render(); } })));
+    const bar = el("div", { class: "slbar", role: "img", "aria-label": n + " slices over " + D.len + " samples" },
+      pos.map((p, k) => el("button", { class: "seg-slice" + (k === j ? " on" : ""), style: "left:" + (p / D.len) * 100 + "%;width:" + (len(k) / D.len) * 100 + "%", "aria-label": "Slice " + (k + 1), onclick: () => { sl.sel = k; render(); } })));
+    const stepSeg = el("div", { class: "seg", role: "group", "aria-label": "Step size" }, [64, 512, 4096].map((s) => el("button", { "aria-pressed": String(sl.step === s), text: s + " samples", onclick: () => { sl.step = s; render(); } })));
+    const slider = el("input", { type: "range", min: lo, max: Math.max(lo, hi), step: 1, value: pos[j], "aria-label": "Start of slice " + (j + 1), disabled: hi < lo, onchange: (ev) => set(+ev.target.value) });
+    const out = el("output", { text: pos[j] + " (" + Math.round((pos[j] / D.len) * 100) + "%)" });
+    slider.addEventListener("input", () => { out.textContent = slider.value + " (" + Math.round((slider.value / D.len) * 100) + "%)"; });
+    return el("div", { class: "slices" },
+      el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "USR" + (sl.slot + 1) + ": " + n + " slices" + (D.man ? " (yours)" : " (automatic)") }), el("output", { text: D.len + " samples" })), chips, bar),
+      el("div", { class: "card" }, el("div", { class: "lab" }, el("span", { text: "Slice " + (j + 1) + " starts at" }), out), slider,
+        el("div", { class: "row" }, el("button", { class: "btn", disabled: pos[j] - sl.step < lo, onclick: () => set(pos[j] - sl.step), "aria-label": "Start earlier" }, ic("left"), "Earlier"), stepSeg,
+          el("button", { class: "btn", disabled: pos[j] + sl.step > hi, onclick: () => set(pos[j] + sl.step), "aria-label": "Start later" }, "Later", ic("right"))),
+        el("div", { class: "row" },
+          el("button", { class: "btn grow", disabled: n >= SLC_AUTO || len(j) < 2 * SLC_MIN, onclick: () => { const p = [...pos]; p.splice(j + 1, 0, pos[j] + Math.floor(len(j) / 2)); sl.sel = j + 1; putSlices(p, D.end); }, text: "Split in two" }),
+          el("button", { class: "btn grow", disabled: j === 0, onclick: () => { const p = [...pos]; p.splice(j, 1); sl.sel = j - 1; putSlices(p, D.end); }, text: "Join with the one before" }),
+          el("button", { class: "btn grow", disabled: !D.end, onclick: () => putSlices(pos, 0), text: "Last slice to the end", title: "The last slice plays to the end of the sample" })),
+        el("div", { class: "row" }, el("button", { class: "btn grow", disabled: !D.man, onclick: () => { sl.sel = 0; putSlices([], 0); }, text: "Back to automatic slices" }))));
+  }
+
   function body() {
     const { tab } = ids(), all = tabsFor(d(), st.t);
     const rail = el("div", { class: "rail", role: "tablist", "aria-label": "Sound groups" }, all.map((x) =>
@@ -158,6 +213,7 @@ export function SoundScreen(ctx) {
     let content;
     if (tab.fm6) content = fm6.el;
     else if (st.loading) content = el("div", { class: "empty" }, el("p", { text: "Reading..." }));
+    else if (tab.slices) content = slicesEl();
     else if (tab.mod != null) {
       const rows = Array.from({ length: 4 }, (_, k) => {
         const [a, b, c] = [0, 1, 2].map((j) => row(0, tab.mod + 3 * k + j));

@@ -8,6 +8,7 @@ import { parseStep, encodeStep, togglePitch, toggleLane, CONDITIONS, emptyStep }
 import { Tools, SCALE_BITS, reverseSrc, shiftSrc } from "./tools.js";
 import { TIME } from "./steps.js";
 import { MidiClock, DIV_PULSES } from "./clock.js";
+import { Ext, FX, FX_NONE, KRST } from "./ext.js";
 
 let failed = 0;
 const ok = (cond, what) => { console.log(`${what.padEnd(70)} ${cond ? "ok" : "FAIL"}`); if (!cond) failed++; };
@@ -150,6 +151,45 @@ ok(n > 10, "pulses were scheduled after a tempo change");
   ok(!(await dev.readMotion(0)).on, "automation play is switched off");
   await dev.motionOn(0, true); await dev.motionClear(0); await dev.motionCmd(0, [6, 127]);
   ok((await dev.readMotion(0)).recs.length === 0, "clear removes events and locks");
+}
+
+/* ---- the tablet commands: perform, key map, slices, drum mutes, CLEAR ALL, MIDI learn, HISS ---- */
+{
+  ok(dev.tags.krst === 127, "INFO 58 01: the tablet commands are found (all seven)");
+  const r0 = await Ext.perf(dev);
+  ok(r0.mask === 0 && eq(r0.k, [0, 0, 0, 0]) && r0.avail === 0x3FFFF && !r0.latch && !r0.kill, "PERF: the query: nothing held, every effect available");
+  const mask = (1 << 1) | (1 << 4) | (1 << 15);
+  const r1 = await Ext.perf(dev, { mask, k: [-40, 30, 0, 10], solo: 5, fill: 1 });
+  ok(r1.mask === mask && eq(r1.k, [-40, 30, 0, 10]) && r1.solo === 5 && r1.fill === 1, "PERF: effects, macros, SOLO and FILL are set and echoed");
+  ok(dev.mock.perf.mask === mask && dev.mock.perf.k[0] === -40, "PERF: the machine holds them");
+  await new Promise((r) => setTimeout(r, 700));
+  ok(dev.mock.perf.mask === 0 && dev.mock.perf.solo === 0 && dev.mock.perf.k[0] === 0, "PERF: 600 ms of quiet lets everything go");
+  let bad = false; try { await Ext.perf(dev, { mask: 1 << 20, k: [0, 0, 0, 0], solo: 0, fill: 0 }); } catch (e) { bad = true; }
+  ok(bad, "PERF: an effect past the list gets no answer");
+  const km = await Ext.keymap(dev);
+  ok(km.rc === 0 && km.map.length === 16 && km.map[0] === 0 && km.map[15] === 15 && FX.length === 18, "KEYMAP: sixteen keys, the default map");
+  const km2 = await Ext.keymap(dev, { key: 3, fx: FX_NONE });
+  ok(km2.map[3] === FX_NONE && km2.map[4] === 4, "KEYMAP: one key set to none");
+  ok((await Ext.keymap(dev, { reset: true })).map[3] === 3, "KEYMAP: the default map back");
+  const s0 = await Ext.slice(dev, 0);
+  ok(s0.rc === 0 && !s0.man && s0.len === 512 && s0.pos.length === 4, "SLICE: the read (AUTO's slices, the sample's length)");
+  const s1 = await Ext.slice(dev, 0, { pos: [0, 100, 300], end: 0 });
+  ok(s1.rc === 0 && s1.man && eq(s1.pos, [0, 100, 300]), "SLICE: three MAN slices set and read back");
+  const s2 = await Ext.slice(dev, 0, { pos: [0, 10], end: 0 });
+  ok(s2.rc === 2 && eq((await Ext.slice(dev, 0)).pos, [0, 100, 300]), "SLICE: starts closer than the shortest slice are refused, the table stays");
+  ok((await Ext.slice(dev, 1)).rc === 1, "SLICE: an empty slot says so");
+  ok(!(await Ext.slice(dev, 0, { pos: [], end: 0 })).man, "SLICE: none puts AUTO back");
+  ok((await Ext.drumMute(dev, 1, 0x95)) === 0x95 && (await Ext.drumMute(dev, 1)) === 0x95, "DRUMMUTE: eight lanes in two bytes");
+  ok((await Ext.mlearn(dev)) === false && (await Ext.mlearn(dev, true)) === true && (await Ext.mlearn(dev, true)) === true && (await Ext.mlearn(dev, false)) === false, "MLEARN: on, on again, off");
+  const hd = await dev.describe(1, 27);
+  ok(hd.label === "HISS" && hd.max === 127, "HISS: global 27 describes itself");
+  ok((await dev.setGlobal(27, 77)) === 77 && (await dev.getGlobal(27)) === 77, "HISS: set and read");
+  await dev.setGlobal(27, 0);
+  ok((await Ext.clearAll(dev)) === 0 && dev.mock.wire.clears === 1, "CLEAR ALL: the machine answers done");
+  const stock = new Device();
+  await stock.connect({ mock: true, krst: false });
+  ok(stock.tags.krst === 0 && stock.tags.menu > 0, "a firmware without the tablet commands: no tablet tag, the rest as before");
+  stock.close();
 }
 
 dev.close();
