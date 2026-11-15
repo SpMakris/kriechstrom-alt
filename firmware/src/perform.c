@@ -110,6 +110,10 @@ static volatile uint32_t kb_layer;    /* ISR: the keys held that are the layer's
 static volatile uint32_t perf_held;   /* ISR: the effects held (PF_*) */
 static volatile uint8_t perf_latch_on;   /* main: MENU > FX LATCH ON (#40): a key with FX toggles its effect */
 static volatile uint32_t perf_latched;   /* ISR: the effects latched (FX LATCH; main clears it: OCT-, the menu) */
+static volatile uint32_t ed_pf;       /* main: the effects the tablet editor holds (editor_krst.c: PERF; they expire there) */
+static uint32_t ed_pf_seen;           /* audio: ed_pf as the last block saw it (a new bit takes its press order) */
+static volatile uint8_t ed_solo;      /* main: tracks the editor solos (a bit each), OR'd into perf_solo by layer_keys */
+static volatile uint8_t ed_fill;      /* main: the editor holds FILL (seq_fill, as GLO + E4) */
 static volatile uint32_t perf_act;    /* ISR: .. running (a 1/16 one from its start on) */
 static uint32_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
 
@@ -319,9 +323,14 @@ static void perf_buf_select(uint32_t e)
  * Returns 1 when a stage has something to do */
 static __attribute__((noinline)) int perf_begin(uint32_t n)
 {
-    uint32_t held = perf_kill ? 0u : (perf_held | perf_latched | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail();
-    uint32_t q, k, ph0, bnd;
+    uint32_t em = ed_pf & (PF_BIT(PF_M1) - 1u), nw = em & ~ed_pf_seen, e0;
+    uint32_t held, q, k, ph0, bnd;
     int32_t m;
+    ed_pf_seen = em;
+    for (e0 = 0; nw; e0++, nw >>= 1)                 /* (the editor's press: the order the buffer effects take) */
+        if (nw & 1u)
+            perf_ord[e0] = ++perf_seq;
+    held = perf_kill ? 0u : (perf_held | perf_latched | em | (perf_solo ? (~(uint32_t)perf_solo & 15u) << PF_M1 : 0u)) & perf_avail();
     if (!(held & PF_BIT(PF_RAND))) {                /* RANDOM let go: what it played stops with it */
         pf.rarm = 0;
         pf.rpick = PF_N;

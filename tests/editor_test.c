@@ -171,7 +171,7 @@ static int preferences(void)
     uint8_t a[4] = {0, 7, 0, 0};
     reset();
     uint32_t n = request(ED_INFO, a, 0);
-    uint32_t e = n - 6u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5 last, below) */
+    uint32_t e = n - 9u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5, tablet: 58 01 caps last, below) */
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
         host_wire[e - 47] == CHAIN_ROWS && host_wire[e - 46] == 0x55 &&
@@ -192,9 +192,9 @@ static int preferences(void)
         host_wire[e - 7] == 0x56 && host_wire[e - 6] == 1 && host_wire[e - 5] == 32 &&   /* 1.4.1: FM6 voice bank */
         host_wire[e - 4] == 0x43 && host_wire[e - 3] == 1 && host_wire[e - 2] == ML_N);   /* 1.5: MIDI LEARN */
     bad += check("INFO 1.5.5: 4B 01 11, a step's condition after its nudge",
-        host_wire[n - 7] == 0x4B && host_wire[n - 6] == 1 && host_wire[n - 5] == NCOND);
-    bad += check("INFO 1.6: 45 01 5, CUSTOM's colours, last",
-        host_wire[n - 4] == 0x45 && host_wire[n - 3] == 1 && host_wire[n - 2] == 5);
+        host_wire[n - 10] == 0x4B && host_wire[n - 9] == 1 && host_wire[n - 8] == NCOND);
+    bad += check("INFO 1.6: 45 01 5, CUSTOM's colours, before the tablet tag",
+        host_wire[n - 7] == 0x45 && host_wire[n - 6] == 1 && host_wire[n - 5] == 5);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].c1);
@@ -1344,12 +1344,213 @@ static int custom_palette(void)
     return bad;
 }
 
+/* the tablet companion's commands (editor_krst.c; INFO 58 01): PERF 82, KEYMAP 83, SLICE 84, DRUMMUTE 85, CLEARALL 86,
+ * and HISS through GET / SET of scope 1 */
+static int krst_ext(void)
+{
+    int bad = 0, ok;
+    uint8_t a[640] = {0}, data[256], p[12];
+    uint32_t n, i, k;
+    smp_user_hdr_t h;
+    reset();
+    n = request(ED_INFO, a, 0);
+    bad += check("INFO: 58 01 caps last (PERF KEYMAP SLICE DRUMMUTE CLEARALL HISS MLEARN)",
+                 host_wire[n - 4] == 0x58 && host_wire[n - 3] == 1 && host_wire[n - 2] == ED_K_CAPS && ED_K_CAPS == 127u);
+
+    /* PERF: query, set, echo, the audio side sees it, a bad frame is dropped, nothing stays held */
+    n = request(ED_PERF, a, 0);
+    ok = n == 5u + 20u + 1u && host_wire[4] == ED_PERF && !host_wire[5] && !host_wire[6] && !host_wire[7] &&
+         host_wire[8] == 50 && !host_wire[9] && !host_wire[10] && !host_wire[11] && !host_wire[12] && !host_wire[13];
+    bad += check("PERF: the query answers 20 bytes (nothing held, FILTER 50 = none)", ok);
+    memset(p, 0, sizeof p);
+    p[0] = (uint8_t)((1u << PF_R16) | (1u << PF_LPF)); p[1] = (uint8_t)(((1u << PF_R16) | (1u << PF_LPF)) >> 7);
+    p[3] = 70; p[4] = 30; p[5] = 0; p[6] = 10; p[7] = 5; p[8] = 1;
+    perf_k[1] = 7;                                       /* (a macro the device's own knob set) */
+    n = request(ED_PERF, p, 9);
+    ok = n == 26u && ed_pf == (PF_BIT(PF_R16) | PF_BIT(PF_LPF)) && perf_k[0] == 40 && perf_k[1] == 30 && perf_k[2] == 0 &&
+         perf_k[3] == 10 && ed_solo == 5 && ed_fill == 1 && host_wire[5] == p[0] && host_wire[8] == 70 && host_wire[9] == 30 &&
+         host_wire[12] == 5 && host_wire[13] == 1;
+    bad += check("PERF: effects, macros, SOLO and FILL set and echoed", ok);
+    p[4] = 0;
+    request(ED_PERF, p, 9);
+    bad += check("PERF: a macro the editor set goes back to 0 when sent as 0", perf_k[1] == 0);
+    perf_k[2] = 9; p[5] = 0;
+    request(ED_PERF, p, 9);
+    bad += check("PERF: a macro the editor never set is left alone", perf_k[2] == 9);
+    perf_k[2] = 0;
+    perf_kill = 0; ed_pf = 0; ed_pf_seen = 0;
+    ed_pf = PF_BIT(PF_GATE);
+    bad += check("perform: an effect the editor holds runs (perf_begin) and is let go with FX KILL",
+                 perf_begin(64) == 1 && (pf.act & PF_BIT(PF_GATE)));
+    perf_kill = 1;
+    perf_begin(64);
+    bad += check("perform: FX KILL silences the editor's hold too", !(pf.act & PF_BIT(PF_GATE)));
+    perf_kill = 0; ed_pf = 0; perf_begin(64);
+    p[0] = 1; p[1] = 0; p[3] = 70; p[4] = 30; p[5] = 0; p[6] = 10;
+    request(ED_PERF, p, 9);
+    ed_krst_tick();
+    bad += check("PERF: held while the tablet repeats it", ed_pf && ed_solo == 5 && ed_fill);
+    fm1_ms += ED_K_HOLD_MS + 1u;
+    ed_krst_tick();
+    bad += check("PERF: 600 ms of quiet lets everything go (effects, SOLO, FILL, the macros it set)",
+                 !ed_pf && !ed_solo && !ed_fill && !perf_k[0] && !perf_k[3]);
+    p[2] = 16;
+    bad += check("PERF: an effect bit past the effects, a short or a long frame: no reply",
+                 !request(ED_PERF, p, 9) && !request(ED_PERF, p, 5) && !request(ED_PERF, p, 10));
+    p[2] = 0; p[6] = 101;
+    bad += check("PERF: DEPTH over 100: no reply", !request(ED_PERF, p, 9));
+    p[6] = 0; p[7] = 16;
+    bad += check("PERF: SOLO of a fifth track: no reply", !request(ED_PERF, p, 9));
+    p[7] = 0; p[8] = 2;
+    bad += check("PERF: FILL 2: no reply", !request(ED_PERF, p, 9));
+    ed_krst_release();
+
+    /* KEYMAP */
+    n = request(ED_KEYMAP, a, 0);
+    ok = n == 5u + 17u + 1u && !host_wire[5];
+    for (k = 0; k < PF_KEYS; k++)
+        ok &= host_wire[6 + k] == PF_DEF[k];
+    bad += check("KEYMAP: the default map, 16 keys", ok);
+    a[0] = 3; a[1] = PF_N;
+    n = request(ED_KEYMAP, a, 2);
+    bad += check("KEYMAP: one key set to NONE (saved or RAM only), the map follows",
+                 n == 5u + 17u + 1u && host_wire[5] != 1 && host_wire[6 + 3] == PF_N &&
+                 perf_map_of(fx_keys, 3) == PF_N && perf_map_of(fx_keys, 4) == PF_DEF[4]);
+    a[0] = 5; a[1] = PF_CRSW;
+    request(ED_KEYMAP, a, 2);
+    bad += check("KEYMAP: a key set to CRUSH SWEEP", perf_map_of(fx_keys, 5) == PF_CRSW && host_wire[6 + 5] == PF_CRSW);
+    a[0] = PF_KEYS; a[1] = 0;
+    bad += check("KEYMAP: a key past 15: no reply", !request(ED_KEYMAP, a, 2));
+    a[0] = 0; a[1] = PF_NFX;
+    bad += check("KEYMAP: an effect past the list (and not NONE): no reply", !request(ED_KEYMAP, a, 2) && perf_map_of(fx_keys, 0) == PF_DEF[0]);
+    a[0] = 127;
+    n = request(ED_KEYMAP, a, 1);
+    ok = n == 5u + 17u + 1u;
+    for (k = 0; k < PF_KEYS; k++)
+        ok &= host_wire[6 + k] == PF_DEF[k] && perf_map_of(fx_keys, k) == PF_DEF[k];
+    bad += check("KEYMAP: 127 puts the default map back", ok);
+    a[0] = 1;
+    bad += check("KEYMAP: one byte other than 127: no reply", !request(ED_KEYMAP, a, 1));
+
+    /* DRUMMUTE */
+    a[0] = 1; a[1] = 0x15; a[2] = 1;
+    n = request(ED_DRUMMUTE, a, 3);
+    bad += check("DRUMMUTE: lanes 0 2 4 7 muted on track 2, echoed",
+                 n == 5u + 3u + 1u && drum_mute[1] == 0x95u && host_wire[5] == 1 && host_wire[6] == 0x15 && host_wire[7] == 1);
+    a[0] = 1;
+    n = request(ED_DRUMMUTE, a, 1);
+    bad += check("DRUMMUTE: the read", n == 9u && host_wire[6] == 0x15 && host_wire[7] == 1 && drum_mute[0] == 0);
+    a[0] = 1; a[1] = 0; a[2] = 2;
+    bad += check("DRUMMUTE: a ninth lane: no reply", !request(ED_DRUMMUTE, a, 3) && drum_mute[1] == 0x95u);
+    a[0] = NTRK; a[2] = 0;
+    bad += check("DRUMMUTE: a fifth track: no reply", !request(ED_DRUMMUTE, a, 3));
+
+    /* HISS: scope 1, id G_HISS (past G_COUNT) */
+    a[0] = 1; a[1] = G_HISS;
+    n = request(ED_GET, a, 2);
+    bad += check("HISS: GET of global G_HISS answers its value", n == 5u + 4u + 1u && host_wire[5] == 1 && host_wire[6] == G_HISS &&
+                 ed_rv(host_wire + 7) == song.g[G_HISS]);
+    a[2] = (8192 + 77) & 127; a[3] = (8192 + 77) >> 7;
+    n = request(ED_SET, a, 4);
+    bad += check("HISS: SET to 77, echoed", n == 10u && song.g[G_HISS] == 77 && ed_rv(host_wire + 7) == 77);
+    a[2] = (8192 + 200) & 127; a[3] = (8192 + 200) >> 7;
+    request(ED_SET, a, 4);
+    bad += check("HISS: SET over the range is clamped to 127", song.g[G_HISS] == 127);
+    a[1] = G_ALL;
+    bad += check("HISS: a global past G_HISS: no reply", !request(ED_GET, a, 2));
+    a[1] = G_HISS;
+    n = request(ED_DESC, a, 2);
+    bad += check("HISS: DESC answers", n > 8u);
+    a[0] = 1; a[1] = G_HISS; a[2] = 0; a[3] = 64;
+    request(ED_SET, a, 4);
+
+    /* SLICE: a sample in user slot 1 (as samples() uploads it), then the slice points */
+    memset(host_samples, 0, sizeof host_samples);
+    for (i = 0; i < sizeof data; i++) data[i] = (uint8_t)(i * 37u);
+    a[0] = 0; a[1] = 0; a[2] = 4; a[3] = 0;
+    n = pack7(data, 256, a + 4) + 4u;
+    request(ED_SMP_BEGIN, a, 1);
+    request(ED_SMP_WRITE, a, n);
+    memset(&h, 0, sizeof h); h.magic = SMP_USER_MAGIC; h.version = 1; h.nz = 1;
+    h.data_len = 256; h.crc = st_crc32(data, 256); h.zone[0].n = 512; h.zone[0].le = 511;
+    h.zone[0].rate = 65536; h.zone[0].hi = 127;
+    a[0] = 0; n = pack7((const uint8_t *)&h, sizeof h, a + 1) + 1u;
+    request(ED_SMP_END, a, n);
+    memset(a, 0, sizeof a);
+    a[0] = 0;
+    n = request(ED_SLICE, a, 1);
+    {
+        const slc_src_t *s = slc_get(1);
+        uint32_t len = s ? s->len : 0, cnt = n > 14u ? host_wire[11] : 0;
+        ok = s && n >= 5u + 3u + 3u + 1u + 3u + 1u && !host_wire[6] && !host_wire[7] && cnt == (s ? s->nauto : 0) &&
+             (uint32_t)(host_wire[8] | (host_wire[9] << 7) | (host_wire[10] << 14)) == len && len == 512u;
+        bad += check("SLICE: the read of a sample (rc 0, AUTO's slices shown, man 0, its length 512)", ok);
+    }
+    memset(a, 0, sizeof a);
+    a[0] = 0; a[1] = 3;                                  /* 3 slices, end 0: at 0, 100, 300 */
+    a[5 + 3] = 100; a[5 + 6] = (uint8_t)(300 & 127); a[5 + 7] = (uint8_t)(300 >> 7);
+    slc_man_save = 0;
+    n = request(ED_SLICE, a, 5u + 9u);
+    ok = n > 14u && !host_wire[6] && host_wire[7] == 1 && host_wire[11] == 3 && (slc_man_save & 1u) &&
+         slc_man[0][slc_man_cur[0] & 1u].n == 3u && slc_man[0][slc_man_cur[0] & 1u].pos[1] == 100u &&
+         slc_man[0][slc_man_cur[0] & 1u].pos[2] == 300u;
+    bad += check("SLICE: three MAN slices set, read back (man 1), the slot marked for flash", ok);
+    a[5 + 3] = 10;                                       /* 10 samples after the first start: closer than SLC_MIN */
+    n = request(ED_SLICE, a, 5u + 9u);
+    bad += check("SLICE: starts closer than the shortest slice: rc 2, the table kept",
+                 n > 6u && host_wire[6] == 2 && slc_man[0][slc_man_cur[0] & 1u].pos[1] == 100u);
+    a[5 + 3] = 100; a[5 + 6] = 0; a[5 + 7] = 4;          /* a start at 512: the sample's end */
+    n = request(ED_SLICE, a, 5u + 9u);
+    bad += check("SLICE: a start at the sample's end: rc 2", n > 6u && host_wire[6] == 2);
+    memset(a, 0, sizeof a); a[0] = 1;
+    n = request(ED_SLICE, a, 1);
+    bad += check("SLICE: an empty slot: rc 1", n > 6u && host_wire[6] == 1);
+    a[0] = SMP_USER_SLOTS;
+    n = request(ED_SLICE, a, 1);
+    bad += check("SLICE: a slot that does not exist: rc 1", n > 6u && host_wire[6] == 1);
+    memset(a, 0, sizeof a); a[0] = 0; a[1] = 2;
+    bad += check("SLICE: a count that does not match the frame: no reply", !request(ED_SLICE, a, 5u + 3u) && !request(ED_SLICE, a, 4));
+    a[1] = (uint8_t)(SLC_AUTO + 1u);
+    bad += check("SLICE: more than SLC_AUTO slices: no reply", !request(ED_SLICE, a, 5u + 3u * (SLC_AUTO + 1u)));
+    a[1] = 0;
+    n = request(ED_SLICE, a, 5);
+    bad += check("SLICE: none (count 0) puts AUTO's slices back", n > 6u && !host_wire[6] && !host_wire[7] &&
+                 slc_man[0][slc_man_cur[0] & 1u].n == 0u);
+
+    /* MLEARN */
+    n = request(ED_MLEARN, a, 0);
+    bad += check("MLEARN: the read (off)", n == 7u && !host_wire[5] && !ui.ml.on);
+    a[0] = 1;
+    n = request(ED_MLEARN, a, 1);
+    bad += check("MLEARN: set on (as GLO + D4), echoed", n == 7u && host_wire[5] == 1 && ui.ml.on);
+    n = request(ED_MLEARN, a, 1);
+    bad += check("MLEARN: set on again keeps it on (no toggle)", host_wire[5] == 1 && ui.ml.on);
+    a[0] = 0;
+    n = request(ED_MLEARN, a, 1);
+    bad += check("MLEARN: set off", host_wire[5] == 0 && !ui.ml.on);
+    a[0] = 2;
+    bad += check("MLEARN: a value past 1, or two bytes: no reply", !request(ED_MLEARN, a, 1) && !request(ED_MLEARN, a, 2));
+
+    /* CLEARALL */
+    trk[0].step[0].time = 0;
+    song.g[G_HISS] = 50;
+    a[0] = 0;
+    bad += check("CLEARALL: a wrong key byte or no byte: no reply and nothing cleared",
+                 !request(ED_CLEARALL, a, 1) && !request(ED_CLEARALL, a, 0) && trk[0].step[0].time == 0 && song.g[G_HISS] == 50);
+    a[0] = ED_K_CLEAR_KEY;
+    n = request(ED_CLEARALL, a, 1);
+    bad += check("CLEARALL: the music is a new project (steps and HISS cleared, rc 0)",
+                 n == 7u && !host_wire[5] && trk[0].step[0].time == ST_REST && song.g[G_HISS] == 0 && sync_reload);
+    return bad;
+}
+
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
 int main(void)
 {
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip() + live_sync() + usb_burst() + menu_protocol() + drum_kit_retired() +
               learn_protocol() + custom_palette();
+    bad += krst_ext();                                   /* (after the others: its CLEAR ALL and sample upload change what they start from) */
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

@@ -1245,3 +1245,29 @@ device gone at ~0.3 s, the MIDI port gone at ~0.57 s and back at ~1.15 s; ON -> 
 at ~0.6 s while the MIDI port was not seen to disappear at all (so do not wait for a disconnect event: after
 a real change, wait ~1.5 s and open again). What the editor sends in that window is lost, `WATCH` ends with the
 bus reset (send `INFO` and `WATCH` again after reconnecting), and a backup in progress answers rc 5 (stale).
+
+
+## Tablet companion (82-87; INFO `58 01 caps`)
+
+Added for the tablet companion (editor_krst.c). INFO appends `58 01 caps` (caps: bit 0 PERF, 1 KEYMAP, 2 SLICE, 3 DRUMMUTE,
+4 CLEARALL, 5 HISS, 6 MLEARN). Firmware without the tag has none of this. Every command sets a state; nothing toggles, so a lost or
+repeated frame does no harm. Values are 7-bit bytes; "3 bytes" is a 21-bit value, LSB first.
+
+| cmd | args | reply |
+|---|---|---|
+| 82 PERF | none: read. 9 bytes: effects (3 bytes, bit e = effect e), FILTER (0..100; value = 2 x b - 100, 50 = none), CRUSH, THROW, DEPTH (0..100), SOLO (a bit per track), FILL (0 / 1) | effects held by the editor (3), the four macros as sent (4), SOLO, FILL, effects that can run (3), effects running (3), effects the device holds (3), FX LATCH on, FX KILL on |
+| 83 KEYMAP | none: read. 2 bytes: key (0..15), effect (0..17, or 22 = none). 1 byte 127: the default map | rc (0 saved, 1 refused, 3 RAM only, 4 queued until STOP), the 16 effects of the 16 FX keys |
+| 84 SLICE | 1 byte: user slot 0..2 reads. 5 + 3n bytes: slot, n (0..32), end (3), n x start (3): sets the MAN slices (n 0: automatic again) | slot, rc (0, 1 no such slot / empty, 2 points do not fit: sorted, 64 samples apart, inside the sample), man (1 = MAN table), sample length (3), n, end (3, 0 = the sample's end), n x start (3) |
+| 85 DRUMMUTE | 1 byte: track reads. 3 bytes: track, lanes low 7 bits, lanes high bit (bit l = lane l muted) | track, lo, hi |
+| 86 CLEARALL | 1 byte 0x59 (a frame sent by accident does nothing): the music as a new project (MENU > SYSTEM > CLEAR ALL; stored projects, presets, samples and settings stay) | rc (0 done, 1 refused) |
+| 87 MLEARN | none: read. 1 byte 0 / 1: MIDI LEARN off / on | on |
+
+**Nothing stays held.** PERF's effects, SOLO, FILL and the macros it set are let go ED_K_HOLD_MS (600 ms) after the last PERF frame
+(a pulled cable, a closed page, a lost touch-up). The tablet repeats PERF every 180 ms while anything is held. The effects, SOLO and
+FILL are OR'd with the device's own (a held key and the tablet's finger both count); FX KILL silences the editor's too.
+
+**SLICE:** the slices only play with the track's DIV (P_E1 = P_E0 + 1) set to MAN (5); the editor sets it. The source is P_E0
+(1..3 = USR1..USR3).
+
+**HISS:** `G_HISS` is a global of scope 1 (GET / SET / DESC) with id = the global count from INFO. The tablet takes the count from INFO and uses id
+`gcount` when INFO has `58 01` bit 5.

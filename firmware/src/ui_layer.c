@@ -699,14 +699,14 @@ static void layer_keys(uint32_t keys)
         eqa_release();
     lys.solo &= kb_layer;
     lys.fill &= kb_layer;
-    if (seq_fill != (lys.fill != 0u)) {                 /* (1.5.5: the steps' FILL / !FILL from the next step) */
-        seq_fill = (uint8_t)(lys.fill != 0u);
+    if (seq_fill != (uint8_t)(lys.fill != 0u || ed_fill)) {   /* (1.5.5: the steps' FILL / !FILL from the next step) */
+        seq_fill = (uint8_t)(lys.fill != 0u || ed_fill);
         ui.force = 1;
     }
     for (k = 0; k < 27u; k++)
         if ((lys.solo >> k) & 1u)
             s |= 1u << key_place(k);
-    perf_solo = (uint8_t)s;
+    perf_solo = (uint8_t)(s | ed_solo);                 /* (the tablet's SOLO too: editor_krst.c) */
 }
 
 /* KNOB 1..4 in the open layer: its own (FX macros, GLO levels, EDIT's sound), else the four of its page */
@@ -847,7 +847,7 @@ static int glo_sounding(uint32_t t) { return !trk[t].p[P_MUTE] && (!perf_solo ||
 static int rec_clearable(void) { return !seq_is_empty(TSEL) || motion_count(TSEL) != 0u; }
 static uint32_t layer_leds(uint32_t *br)
 {
-    uint32_t k, m = 0, n = 0, l = ui.layer, held = perf_held | perf_latched, ok = perf_avail();
+    uint32_t k, m = 0, n = 0, l = ui.layer, held = perf_held | perf_latched | ed_pf, ok = perf_avail();
     uint32_t mask = scale_mask(TSEL), root = (uint32_t)TSEL->p[P_ROOT] % 12u;
     const eqa_t *a;
     for (k = 0; k < 27u; k++) {
@@ -992,7 +992,7 @@ static void bnote(char *n, uint32_t t) { n[0] = B_NOTE[t]; n[1] = '#'; n[2] = 0;
 
 static void layer_fx(void)
 {
-    uint32_t held = perf_kill ? 0u : perf_held | perf_latched, act = perf_act, ok = perf_avail(), p, e, st;
+    uint32_t held = perf_kill ? 0u : perf_held | perf_latched | ed_pf, act = perf_act, ok = perf_avail(), p, e, st;
     uint32_t ed = fx_key_held() ? key_place(fx_key_held() - 1u) : PF_KEYS;
     char n[3] = {0, 0, 0};
     for (p = 0; p < PF_KEYS; p++) {                     /* the white keys F3 .. G5, 4 a row: the effect each holds */
@@ -1242,7 +1242,7 @@ static void draw_layer(void)
     if (l == LAYER_FX)
     {
         uint32_t p;
-        sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u +
+        sig += (perf_kill ? 0u : perf_held | perf_latched | ed_pf) * 31u + perf_latch_on * 11u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u +
                fx_key_held() * 4099u;
         for (p = 0; p < PF_KEYS; p++)                   /* (the key map) */
             sig = sig * 33u + perf_map[p];

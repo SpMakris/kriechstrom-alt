@@ -44,7 +44,7 @@ click_render 30
 mod_begin 170
 mod_voice 30
 mod_end 6
-perf_begin 28
+perf_begin 36
 perf_mute 18
 perf_pre 26
 perf_block 907
