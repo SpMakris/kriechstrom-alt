@@ -1,0 +1,3 @@
+[submodule "vendor/kriechstrom"]
+	path = vendor/kriechstrom
+	url = https://github.com/SpMakris/kriechstrom-alt.git

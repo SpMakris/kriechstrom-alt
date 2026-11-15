@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T00:00:00Z",
+  "title": "Design System: KRIECHSTROM FM-1 Jam Board",
+  "extensions": {
+    "colorMeta": {
+      "red": { "role": "primary", "displayName": "Signal Red", "canonical": "#ff2018", "tonalRamp": ["#3d0806", "#5c0c09", "#7a100c", "#a31610", "#cc1b13", "#ff2018", "#ff6a63", "#ffb0ac"] },
+      "ground": { "role": "neutral", "displayName": "Black Ground", "canonical": "#000000", "tonalRamp": ["#000000", "#0d0d0d", "#191919", "#222222", "#707070", "#c4c4cc", "#f2f2f2", "#ffffff"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#f2f2f2", "tonalRamp": ["#222222", "#444444", "#707070", "#999999", "#c4c4cc", "#e0e0e0", "#f2f2f2", "#ffffff"] },
+      "mute": { "role": "neutral", "displayName": "Mute", "canonical": "#c4c4cc", "tonalRamp": ["#222222", "#444444", "#707070", "#949499", "#aaaab0", "#c4c4cc", "#dcdce0", "#f2f2f2"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "#707070", "tonalRamp": ["#191919", "#2a2a2a", "#3d3d3d", "#555555", "#707070", "#8c8c8c", "#aaaaaa", "#c8c8c8"] },
+      "cell": { "role": "neutral", "displayName": "Cell", "canonical": "#191919", "tonalRamp": ["#000000", "#0d0d0d", "#131313", "#191919", "#222222", "#2a2a2a", "#333333", "#3d3d3d"] },
+      "cell-off": { "role": "neutral", "displayName": "Cell Off", "canonical": "#0d0d0d", "tonalRamp": ["#000000", "#060606", "#0d0d0d", "#131313", "#191919", "#1f1f1f", "#222222", "#2a2a2a"] },
+      "raise": { "role": "neutral", "displayName": "Raise", "canonical": "#222222", "tonalRamp": ["#000000", "#0d0d0d", "#191919", "#222222", "#2a2a2a", "#333333", "#3d3d3d", "#4a4a4a"] },
+      "white": { "role": "neutral", "displayName": "White (position)", "canonical": "#ffffff", "tonalRamp": ["#222222", "#444444", "#666666", "#888888", "#aaaaaa", "#cccccc", "#e6e6e6", "#ffffff"] }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Body", "purpose": "Default 15px / 500 Inter Tight with tabular numerals." },
+      "gate-title": { "displayName": "Gate title", "purpose": "Connect screen heading only." },
+      "tempo": { "displayName": "Tempo", "purpose": "BPM readout in the top bar." },
+      "drawer-title": { "displayName": "Drawer title", "purpose": "Step heading in the drawer." },
+      "stepper-value": { "displayName": "Stepper value", "purpose": "Large numeric value in drawer steppers." },
+      "label": { "displayName": "Label", "purpose": "Uppercase drawer field labels." },
+      "cell": { "displayName": "Cell text", "purpose": "Step numbers and step marks in cells." }
+    },
+    "shadows": [
+      { "name": "playhead-header-bar", "value": "inset 0 -7px 0 #fff", "purpose": "Only shadow-property use in the build: playhead bar under the roll header cell. No blurred shadows exist." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(.19, 1, .22, 1)", "purpose": "Drawer slide and track resize (.35s), switch knob (.25s). All transitions are disabled under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "max-width: 1100px (head 208px, drawer 310px, level 64px)" },
+      { "name": "short", "value": "max-height: 640px (top bar min-height 56px)" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Square 44px touch button; pressed state inverts to ink.",
+      "html": "<button class=\"ds-btn\">PATTERN</button> <button class=\"ds-btn ds-on\">ON</button> <button class=\"ds-btn ds-red\">ARM</button>",
+      "css": ".ds-btn { min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid #707070; background: #191919; color: #f2f2f2; font: 700 15px 'Inter Tight', system-ui, sans-serif; border-radius: 0; cursor: pointer; } .ds-btn:active { background: #222; } .ds-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; } .ds-on { background: #f2f2f2; color: #000; border-color: #f2f2f2; } .ds-red { background: #ff2018; color: #000; border-color: #ff2018; }"
+    },
+    {
+      "name": "Play Button",
+      "kind": "button",
+      "refersTo": "play",
+      "description": "Transport. Red when stopped, ink while running.",
+      "html": "<button class=\"ds-play\">PLAY</button> <button class=\"ds-play ds-run\">STOP</button>",
+      "css": ".ds-play { width: 64px; min-height: 48px; background: #ff2018; color: #000; border: 1px solid #ff2018; font: 700 15px 'Inter Tight', system-ui, sans-serif; border-radius: 0; cursor: pointer; } .ds-play:focus-visible { outline: 2px solid #fff; outline-offset: 2px; } .ds-run { background: #f2f2f2; border-color: #f2f2f2; }"
+    },
+    {
+      "name": "Step Cells",
+      "kind": "custom",
+      "refersTo": "step-cell-on",
+      "description": "Off, on, tie, rest and playhead states of a step cell.",
+      "html": "<div class=\"ds-cells\"><span class=\"ds-cell\">1</span><span class=\"ds-cell ds-on\"></span><span class=\"ds-cell ds-tie\"></span><span class=\"ds-cell ds-rest\"></span><span class=\"ds-cell ds-on ds-now\"></span></div>",
+      "css": ".ds-cells { display: grid; grid-template-columns: repeat(5, 48px); gap: 3px; } .ds-cell { position: relative; height: 56px; background: #191919; border: 1px solid #707070; color: #c4c4cc; font: 700 12px 'Inter Tight', system-ui, sans-serif; display: grid; place-items: center; } .ds-on { background: #ff2018; border-color: #ff2018; color: #000; } .ds-tie { background: repeating-linear-gradient(90deg, #ff2018 0 6px, #000 6px 9px); border-color: #ff2018; } .ds-rest { background: #0d0d0d; } .ds-now::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: #fff; }"
+    },
+    {
+      "name": "Track Head",
+      "kind": "nav",
+      "refersTo": "track-head",
+      "description": "Track name with number badge, sound, and mute toggle.",
+      "html": "<div class=\"ds-head\"><span class=\"ds-name\"><span class=\"ds-num\">1</span><span class=\"ds-snd\">KICK</span></span><button class=\"ds-mute\" aria-pressed=\"false\">M</button></div>",
+      "css": ".ds-head { display: flex; width: 232px; border: 1px solid #707070; background: #191919; color: #f2f2f2; font-family: 'Inter Tight', system-ui, sans-serif; } .ds-name { flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 8px; } .ds-num { width: 28px; height: 28px; display: grid; place-items: center; background: #ff2018; color: #000; font-weight: 800; font-size: 17px; } .ds-snd { font-weight: 800; font-size: 15px; } .ds-mute { width: 44px; min-height: 44px; border: 0; border-left: 1px solid #707070; background: none; color: inherit; font: 800 15px 'Inter Tight', system-ui, sans-serif; cursor: pointer; } .ds-mute:focus-visible { outline: 2px solid #fff; outline-offset: 2px; } .ds-mute[aria-pressed='true'] { background: #ff2018; color: #000; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "chip",
+      "refersTo": "button-pressed",
+      "description": "Hairline-divided options; selected is ink-filled.",
+      "html": "<div class=\"ds-seg\"><button>1</button><button aria-pressed=\"true\">2</button><button>3</button></div>",
+      "css": ".ds-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 240px; border: 1px solid #707070; } .ds-seg button { min-height: 44px; border: 0; border-right: 1px solid #707070; background: none; color: #f2f2f2; font: 700 15px 'Inter Tight', system-ui, sans-serif; cursor: pointer; } .ds-seg button:last-child { border-right: 0; } .ds-seg button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; } .ds-seg button[aria-pressed='true'] { background: #f2f2f2; color: #000; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip-selected",
+      "description": "Drawer option chip; selected fills red.",
+      "html": "<button class=\"ds-chip\">1/2</button> <button class=\"ds-chip\" aria-pressed=\"true\">1/4</button>",
+      "css": ".ds-chip { min-height: 44px; min-width: 64px; border: 1px solid #707070; background: #191919; color: #f2f2f2; font: 700 15px 'Inter Tight', system-ui, sans-serif; border-radius: 0; cursor: pointer; } .ds-chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; } .ds-chip[aria-pressed='true'] { background: #ff2018; color: #000; border-color: #ff2018; }"
+    },
+    {
+      "name": "Slider",
+      "kind": "input",
+      "refersTo": "button",
+      "description": "6px hairline track with a square 22x34 thumb.",
+      "html": "<input class=\"ds-range\" type=\"range\" min=\"0\" max=\"127\" value=\"90\">",
+      "css": ".ds-range { -webkit-appearance: none; appearance: none; width: 240px; height: 44px; background: transparent; margin: 0; } .ds-range::-webkit-slider-runnable-track { height: 6px; background: #707070; } .ds-range::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 34px; margin-top: -14px; background: #f2f2f2; border: 0; border-radius: 0; } .ds-range:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Clock Switch",
+      "kind": "custom",
+      "refersTo": "button-red",
+      "description": "52x30 square switch; red track with black knob when on.",
+      "html": "<span class=\"ds-switch\" role=\"switch\" aria-checked=\"true\"><span class=\"ds-tr\"></span>CLOCK</span>",
+      "css": ".ds-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font: 700 15px 'Inter Tight', system-ui, sans-serif; color: #f2f2f2; } .ds-tr { width: 52px; height: 30px; border: 1px solid #707070; background: #191919; position: relative; } .ds-tr::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; background: #c4c4cc; transition: transform .25s cubic-bezier(.19, 1, .22, 1); } .ds-switch[aria-checked='true'] .ds-tr { background: #ff2018; border-color: #ff2018; } .ds-switch[aria-checked='true'] .ds-tr::after { transform: translateX(22px); background: #000; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Jam Board",
+    "overview": "Black ground, white type, one red. Four tracks stay on screen as rows of 16 step cells; exactly one track is \"in hand\" and grows to fill the height with its roll or lanes, while the other three stay thin and live. A drawer slides in from the right for per-step detail. Nothing is hidden, only folded.\n\nThe build is flat and hard-edged: square corners, 1px hairlines, no shadows, no blur. Red means active; white means selection, the track in hand, and the playhead. Touch is the primary input, so every control is at least 44px.",
+    "keyCharacteristics": [
+      "Red marks every active step, mute-on, play, and the connection-level warning; it is never decoration.",
+      "White (and the pale ink fill) marks \"where you are\": track in hand, playhead, selected step, pressed toggle.",
+      "Square cells separated by 3px gaps, with a 6px extra gap at each beat.",
+      "Tabular numerals throughout.",
+      "Depth is a change of fill and border colour, never a shadow."
+    ],
+    "rules": [
+      { "name": "The One Red Rule", "body": "Red appears only where something is active, armed, or needs attention. A new surface does not get a second accent.", "section": "colors" },
+      { "name": "The White Is Position Rule", "body": "White marks the track in hand, the playhead, the selected step and the focus ring. It never marks \"on\"; that is red.", "section": "colors" },
+      { "name": "The Weight Not Size Rule", "body": "Distinguish roles with weight 500/700/800 first; sizes stay in a narrow 11-26px band for controls.", "section": "typography" },
+      { "name": "The Flat Rule", "body": "Depth is fill and border only. State changes swap fill colour; nothing lifts.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use red only for active, armed or attention states, with black text on it.",
+      "Do use white to mark position: track in hand, playhead, selection, focus.",
+      "Do keep every touch target at least 44px and every edge a 1px hairline (#707070).",
+      "Do keep corners square and depth flat; change fill, not elevation.",
+      "Do use Inter Tight with tabular numerals, and carry hierarchy with weight.",
+      "Do keep motion short on cubic-bezier(.19, 1, .22, 1) (.25s for switch knob, .35s for drawer and track resize) and honour prefers-reduced-motion."
+    ],
+    "donts": [
+      "Don't add a second accent colour.",
+      "Don't use rounded corners, shadows, glow or smooth gradients.",
+      "Don't hide the other three tracks when one is in hand; they stay thin and live.",
+      "Don't add decorative icons; icons only label an action.",
+      "Don't use red text on black for body copy; red-on-black text is reserved for the brand word and note tags."
+    ]
+  }
+}

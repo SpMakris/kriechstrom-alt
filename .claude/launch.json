@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "jam-board", "runtimeExecutable": "python", "runtimeArgs": ["serve_https.py", "8770"], "port": 8770 }
+  ]
+}
