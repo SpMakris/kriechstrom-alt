@@ -24,6 +24,9 @@ static void ed_fm6_name(const uint8_t *pk)       /* the record's name, trailing 
     ed_str(s, 10);
 }
 
+#ifndef ED_HAVE_SYNC                                   /* (editor.c has the live-sync state; a test that includes this file alone has none) */
+static void ed_fm6_known(uint32_t t) { (void)t; }
+#endif
 static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     uint8_t pk[FM6_PACKED];
@@ -55,6 +58,7 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             fm6_set_patch(a[1], v);
             fm6_adopt(a[1]);                               /* the track's own patch now: SLOT OWN (F n if it is that
                                                             * factory patch unchanged); fm6_poll keeps it */
+            ed_fm6_known(a[1]);                            /* (the editor's own change: no push) */
             ui.force = 1;
         } else if (!rc && a[0] == ED_FM6_BANK) {
             rc = ED_FM6_NOBANK;

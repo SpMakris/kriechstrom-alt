@@ -171,7 +171,7 @@ static int preferences(void)
     uint8_t a[4] = {0, 7, 0, 0};
     reset();
     uint32_t n = request(ED_INFO, a, 0);
-    uint32_t e = n - 12u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5, tablet: 58 01 caps last, below) */
+    uint32_t e = n - 15u;                                  /* (1.5.5: 4B 01 NCOND, 1.6: 45 01 5, tablet: 58 01 caps, 59 01, 5A 01, below) */
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
         host_wire[e - 47] == CHAIN_ROWS && host_wire[e - 46] == 0x55 &&
@@ -192,9 +192,9 @@ static int preferences(void)
         host_wire[e - 7] == 0x56 && host_wire[e - 6] == 1 && host_wire[e - 5] == 32 &&   /* 1.4.1: FM6 voice bank */
         host_wire[e - 4] == 0x43 && host_wire[e - 3] == 1 && host_wire[e - 2] == ML_N);   /* 1.5: MIDI LEARN */
     bad += check("INFO 1.5.5: 4B 01 11, a step's condition after its nudge",
-        host_wire[n - 13] == 0x4B && host_wire[n - 12] == 1 && host_wire[n - 11] == NCOND);
+        host_wire[n - 16] == 0x4B && host_wire[n - 15] == 1 && host_wire[n - 14] == NCOND);
     bad += check("INFO 1.6: 45 01 5, CUSTOM's colours, before the tablet tag",
-        host_wire[n - 10] == 0x45 && host_wire[n - 9] == 1 && host_wire[n - 8] == 5);
+        host_wire[n - 13] == 0x45 && host_wire[n - 12] == 1 && host_wire[n - 11] == 5);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].c1);
@@ -771,6 +771,28 @@ static int kit_proto(void)
     bad += check("KIT_SET by the editor: no echo", !sync_pass());
     uks_save(0, "Dev");
     bad += check("KIT_CHANGED: a SAVE on the device is pushed too (the used mask)", sync_pass() && wire_frames(ED_KIT_CHANGED, &x) == 1u && x[1] == 1);
+    /* FM6_CHANGED, MENU_CHANGED */
+    bad += check("FM6_CHANGED / MENU_CHANGED: nothing while all is still", !sync_pass());
+    {
+        uint8_t v[FP_SIZE + 1u], pk[2u + FM6_PACKED];
+        memcpy(v, fm6_patch[1], sizeof v);
+        v[0] = (uint8_t)((v[0] + 1u) % 90u);
+        fm6_set_patch(1, v);
+        bad += check("FM6_CHANGED: the device writes a track's voice: one push with the track", sync_pass() && wire_frames(ED_FM6_CHANGED, &x) == 1u && x[0] == 1 && !sync_pass());
+        v[0] = (uint8_t)((v[0] + 1u) % 90u);
+        pk[0] = 0; pk[1] = 1;
+        fm6_pack(v, pk + 2);
+        request(ED_FM6_PUT, pk, 2u + FM6_PACKED);
+        bad += check("FM6 PUT by the editor: no echo", !sync_pass());
+    }
+    {
+        uint32_t w = menu_get(MI_COLOR) ? 0u : 1u;
+        menu_put(MI_COLOR, w);
+        bad += check("MENU_CHANGED: the device changes a setting: one push (id 0, its value)", sync_pass() && wire_frames(ED_MENU_CHANGED, &x) == 1u && x[0] == 0 && x[1] == (int)(w & 127u) && !sync_pass());
+        a[0] = 0; a[1] = (uint8_t)(w ? 0 : 1); a[2] = 0;
+        request(ED_MENU_SET, a, 3);
+        bad += check("MENU_SET by the editor: no echo", !sync_pass());
+    }
     return bad;
 }
 
@@ -1415,9 +1437,11 @@ static int krst_ext(void)
     reset();
     n = request(ED_INFO, a, 0);
     bad += check("INFO: 58 01 caps last (PERF KEYMAP SLICE DRUMMUTE CLEARALL HISS MLEARN)",
-                 host_wire[n - 7] == 0x58 && host_wire[n - 6] == 1 && host_wire[n - 5] == ED_K_CAPS && ED_K_CAPS == 127u);
+                 host_wire[n - 10] == 0x58 && host_wire[n - 9] == 1 && host_wire[n - 8] == ED_K_CAPS && ED_K_CAPS == 127u);
     bad += check("INFO: 59 01 caps last (the USER drum kit)",
-                 host_wire[n - 4] == 0x59 && host_wire[n - 3] == 1 && host_wire[n - 2] == ED_KIT_CAPS);
+                 host_wire[n - 7] == 0x59 && host_wire[n - 6] == 1 && host_wire[n - 5] == ED_KIT_CAPS);
+    bad += check("INFO: 5A 01 3 last (FM6_CHANGED, MENU_CHANGED pushes)",
+                 host_wire[n - 4] == 0x5A && host_wire[n - 3] == 1 && host_wire[n - 2] == 3);
 
     /* PERF: query, set, echo, the audio side sees it, a bad frame is dropped, nothing stays held */
     n = request(ED_PERF, a, 0);

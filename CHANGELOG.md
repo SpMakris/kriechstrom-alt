@@ -7,6 +7,7 @@ versions are `X.Y`; the package identity is `FM-1_57810002` for every release si
 
 ### Added
 - the DRUM engine's USER kit: eight lanes, every number of the voice tables editable, on the machine (EDIT > KIT 1..7, KIT SLOT) and in the editor protocol (cmds 88-93); seven saved kits K1..K7
+- the editor is told when a track's FM6 voice or a MENU setting is changed on the machine (cmds 94, 95; INFO 5A)
 
 ### Changed
 - user presets are 16 (were 32); the freed flash holds the USER kits

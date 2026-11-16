@@ -42,6 +42,11 @@ static const uint8_t ED_MENU[][2] = {
 #endif
 };
 #define ED_MENU_N NELEM(ED_MENU)
+#ifdef ED_HAVE_SYNC
+_Static_assert(ED_MENU_N <= ED_MENU_CAP, "editor.c: ED_MENU_CAP");
+#endif
+static int32_t ed_menu_val(uint32_t i) { return i < ED_MENU_N ? (int32_t)menu_get(ED_MENU[i][0]) + (ED_MENU[i][0] == MI_TUNE ? TUNE_MIN : 0) : -1; }
+static uint32_t ed_menu_id(uint32_t i) { return i < ED_MENU_N ? ED_MENU[i][1] : 127u; }
 
 /* rc as UI_SET: 0 applied and saved, 3 applied in RAM only (no flash, a failed write), 4 queued until STOP */
 static uint32_t ed_menu_save(void)
@@ -60,6 +65,9 @@ static uint32_t ed_menu_save(void)
 #endif
 }
 
+#ifndef ED_HAVE_SYNC
+static void ed_menu_known(uint32_t i) { (void)i; }
+#endif
 static int ed_menu_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     uint32_t i, row, k;
@@ -105,6 +113,7 @@ static int ed_menu_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     if (row == MI_SERIAL)
         menu_serial_at = fm1_ms | 1u;                  /* (applied 200 ms after this reply: usb_serial_apply) */
     ui.force = 1;                                      /* (the MENU page, if shown, redraws) */
+    ed_menu_known(i);                                  /* (the editor's own change: no push) */
     ed_b(MI_PROJECT(row) ? 0u : ed_menu_save());       /* (the project's: in the music, no settings to save) */
     ed_b(a[0]);
     ed_v((int32_t)menu_get(row) + lo);

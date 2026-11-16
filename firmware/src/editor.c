@@ -132,6 +132,7 @@ static uint32_t ed_eng(const track_t *t) { return t->eng_req % NENGINES; }
  * go out only into a half-empty SysEx ring, so they never wait. */
 #define ED_PUSH_MAX 4u                                   /* frames per pass */
 #define ED_NV (P_COUNT + G_COUNT)
+#define ED_MENU_CAP 40u                                  /* >= the items of editor_menu.c (asserted there) */
 /* v4: the parameters of the tracks that are not selected which TRACK_CHANGED follows (the mixer) */
 static const uint8_t ED_TIDS[3] = {P_LEVEL, P_PAN, P_MUTE};
 #define ED_NT (NTRK * 3u)
@@ -146,6 +147,8 @@ static struct {
     uint16_t tt[ED_NT];
     uint32_t tpos;
     uint16_t kg;                                         /* the USER kit: dv_ugen and the saved kits when last pushed (editor_kit.c) */
+    uint8_t fg[NTRK];                                    /* FM6: fm6_pgen of each track when last pushed (FM6_CHANGED) */
+    int16_t mv[ED_MENU_CAP];                             /* MENU settings: menu_get of each item when last pushed (MENU_CHANGED) */
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
@@ -156,7 +159,13 @@ static uint32_t ed_step_sig(const step_t *s)
            ((uint32_t)s->vel * 0xC2B2AE35u) ^ ((uint32_t)(s->hit | s->acc << 8) * 0x27D4EB2Fu) ^ ((uint32_t)s->probability * 0x165667B1u);
 }
 enum { ED_KIT_CHANGED = 93 };                         /* (the push of editor_kit.c) */
+enum { ED_FM6_CHANGED = 94, ED_MENU_CHANGED };        /* pushes: a track's FM6 voice changed [track]; a MENU setting [id, value v14] */
 static uint32_t ed_kit_sig(void);
+#define ED_HAVE_SYNC
+static void ed_fm6_known(uint32_t t) { ed_w.fg[t] = fm6_pgen[t]; }          /* the editor's own write of a track's voice: no push */
+static int32_t ed_menu_val(uint32_t i);               /* (editor_menu.c) the item i's value as MENU_DESC says it, -1 past the list */
+static uint32_t ed_menu_id(uint32_t i);
+static void ed_menu_known(uint32_t i) { ed_w.mv[i] = (int16_t)ed_menu_val(i); }
 static void ed_shadow(void)                              /* the editor is in sync */
 {
     uint32_t i;
@@ -170,6 +179,10 @@ static void ed_shadow(void)                              /* the editor is in syn
     ed_w.preset = TSEL->preset;
     ed_w.sel = song.sel;
     ed_w.kg = (uint16_t)ed_kit_sig();
+    for (i = 0; i < NTRK; i++)
+        ed_w.fg[i] = fm6_pgen[i];
+    for (i = 0; i < ED_MENU_CAP; i++)
+        ed_w.mv[i] = (int16_t)ed_menu_val(i);
     sync_reload = 0;
 }
 /* the editor's own sound load on the selected track (PRESET, SET of G_ENGSEL): the editor re-reads DUMP after
@@ -191,6 +204,8 @@ static void ed_load_after(const ed_load_t *b)
     sync_reload = 0;
     ed_w.eng = (uint8_t)ed_eng(TSEL);
     ed_w.preset = TSEL->preset;
+    for (i = 0; i < NTRK; i++)                           /* (a load rewrites the track's FM6 voice: the editor re-reads it) */
+        ed_w.fg[i] = fm6_pgen[i];
     for (i = 0; i < P_COUNT; i++)                        /* the load's values; a pending push of another stays */
         if (TSEL->p[i] != b->p[i])
             ed_w.v[i] = TSEL->p[i];
@@ -263,6 +278,28 @@ static void ed_sync(void)                                /* main loop */
         ed_w.kg = (uint16_t)ed_kit_sig();
         ed_begin(ED_KIT_CHANGED);
         ed_b(dv_ugen); ed_b(uks.used & 127u); ed_b((uks.used >> UKS_SAVED) & 1u);
+        ed_send();
+    }
+    for (i = 0; i < NTRK; i++) {                         /* an FM6 voice written on the device (its knobs, a patch load) */
+        if (fm6_pgen[i] == ed_w.fg[i])
+            continue;
+        if (!ed_room())
+            return;
+        ed_w.fg[i] = fm6_pgen[i];
+        ed_begin(ED_FM6_CHANGED);
+        ed_b(i);
+        ed_send();
+    }
+    for (i = 0; i < ED_MENU_CAP; i++) {                  /* a MENU setting changed on the device */
+        int32_t v = ed_menu_val(i);
+        if (v == ed_w.mv[i])
+            continue;
+        if (!ed_room())
+            return;
+        ed_w.mv[i] = (int16_t)v;
+        ed_begin(ED_MENU_CHANGED);
+        ed_b(ed_menu_id(i));
+        ed_v(v);
         ed_send();
     }
     for (i = 0; ed_w.v4 && i < ED_NT && n < ED_PUSH_MAX; i++) {   /* v4: the other tracks' mix */
@@ -512,6 +549,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x45); ed_b(1); ed_b(ED_PAL_N);   /* 1.6: CUSTOM, the user's palette: 5 colours (cmds 80, 81; editor_palette.c) */
         ed_b(0x58); ed_b(1); ed_b(ED_K_CAPS);   /* tablet companion: PERF KEYMAP SLICE DRUMMUTE CLEARALL, HISS (editor_krst.c) */
         ed_b(0x59); ed_b(1); ed_b(ED_KIT_CAPS);   /* USER drum kit: cmds 88..93 (editor_kit.c) */
+        ed_b(0x5A); ed_b(1); ed_b(3);   /* pushes: bit 0 FM6_CHANGED (94), bit 1 MENU_CHANGED (95), while watched */
         break;
     case ED_GET:
     case ED_SET:
