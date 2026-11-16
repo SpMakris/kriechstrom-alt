@@ -47,7 +47,11 @@ export class Device {
     this.link = new A.Link((d) => this.output.send(d), {
       timeout: 300,
       onPush: (f) => this.onPush(f),
-      onUnknown: (f) => { if (f.cmd === 93 && f.a.length >= 3) this.emit("kit", { gen: f.a[0], used: f.a[1], working: !!f.a[2] }); },   /* (KIT_CHANGED: the machine moved a number of the USER drum kit, or saved one) */
+      onUnknown: (f) => {
+        if (f.cmd === 93 && f.a.length >= 3) this.emit("kit", { gen: f.a[0], used: f.a[1], working: !!f.a[2] });
+        else if (f.cmd === 94 && f.a.length >= 1) this.emit("fm6", f.a[0]);                       /* (FM6_CHANGED: the machine wrote a track's FM6 voice) */
+        else if (f.cmd === 95 && f.a.length >= 3) this.emit("menu", f.a[0], (f.a[1] | (f.a[2] << 7)) - 8192);   /* (MENU_CHANGED: a setting of the machine's menu: id, value) */
+      },   /* (KIT_CHANGED: the machine moved a number of the USER drum kit, or saved one) */
       onTimeout: () => this.say("The FM-1 is not answering", "error"),
     });
     this.input.onmidimessage = (e) => this.link.receive(e.data);

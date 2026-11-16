@@ -81,6 +81,11 @@ Mark each one. Anything that fails: stop, note what you did, and tell me before 
 - [ ] Tablet Sound > Kit: a number moved on the tablet is heard and shown on the machine; a knob turned on the machine moves the tablet's number.
 - [ ] Tablet Kit > Kits: Save, Load, Erase and "Start from a model kit" do what the machine's KIT SLOT does.
 
+**FM6 and Settings follow the machine (cmds 94, 95)**
+- [ ] FM6 track, tablet Sound > FM6 open: turn an operator knob on the machine; the tablet's number follows.
+- [ ] Tablet Settings open: change a setting in the machine's MENU (for example COLOR); the tablet shows it.
+- [ ] A change made on the tablet does not bounce back or jump while you drag.
+
 ## 3. What was verified (host only)
 
 - Firmware: the editor tests on the host (plain and under AddressSanitizer), with the second core off, the fuzzer, and the full

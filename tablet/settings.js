@@ -225,5 +225,7 @@ export function SettingsScreen(ctx) {
     const busy = st.busy ? el("div", { class: "busy", role: "status" }, el("b", { text: st.busy }), el("progress", { max: "1", value: String(st.prog || 0) })) : null;
     root.append(...[el("div", { class: "sbody" }, rail, content), sheet(), busy].filter(Boolean));
   }
+  /* a setting turned on the machine's own menu */
+  d().on("menu", (id, v) => { const it = (st.items || []).find((x) => x.id === id); if (it && it.value !== v) { it.value = v; render(); } });
   return { el: root, open, render, leave() { clearTimeout(st.timer); } };
 }

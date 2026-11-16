@@ -31,7 +31,7 @@ export function makeMock(A, opt = {}) {
       if (cmd === CMD.INFO) {                                    /* advertise the newer features this mock adds */
         const have = (t) => { for (let i = 0; i + 1 < a.length; i++) if (a[i] === t && a[i + 1] === 1) return true; return false; };
         if (!have(0x42)) { const k = a.findIndex((x, i) => x === 0x4D && a[i + 1] === 1 && a[i + 2] === 64); if (k >= 0) a.splice(k + 4, 0, 0x42, 1, 3); }   /* BACKUP caps follow the motion tag */
-        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(have(0x41) ? [] : [0x41, 1, 0, 1]), ...(krst ? [0x58, 1, 127, 0x59, 1, 1] : []), 0xF7]);
+        emit([0xF0, ...HDR, cmd, ...a, 0x4C, 1, 1, 0x54, 1, 0x10, 0x4B, 1, 0x0B, ...(have(0x4E) ? [] : [0x4E, 1, 33]), 0x43, 1, 16, 0x45, 1, 5, ...(have(0x56) ? [] : [0x56, 1, 32]), ...(have(0x57) ? [] : [0x57, 1, 4]), ...(have(0x41) ? [] : [0x41, 1, 0, 1]), ...(krst ? [0x58, 1, 127, 0x59, 1, 1, 0x5A, 1, 3] : []), 0xF7]);
         return;
       }
       if (cmd === CMD.TRACK_STEP || cmd === CMD.STEP_GET) {
@@ -312,6 +312,9 @@ export function makeMock(A, opt = {}) {
 
   /* what the machine pushes when a knob is turned on it: CHANGED (the selected track's parameter, or a global) and TRACK_CHANGED */
   const pushChanged = (scope, id, value) => reply(CMD.CHANGED, [scope, id, ...enc14(value)]);
+  /* the machine's own knobs (FM6_CHANGED, MENU_CHANGED): a byte of a track's FM6 voice moved, a menu setting turned */
+  const fm6MachineSet = (t, i, v) => { base.state.tracks[t].fm6[i] = v & 127; reply(94, [t]); };
+  const menuMachineSet = (id, v) => { const m = menu[id]; if (!m) return; m.value = Math.max(m.min, Math.min(m.max, v)); reply(95, [id, ...enc14(m.value)]); };
   const pushTrackChanged = (t, id, value) => reply(CMD.TRACK_CHANGED, [t, id, ...enc14(value)]);
-  return { pushChanged, pushTrackChanged, kit, kitMachineSet, perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
+  return { pushChanged, pushTrackChanged, kit, kitMachineSet, fm6MachineSet, menuMachineSet, perf, keymap, dmute, slice, hiss, wire, access: { inputs: new Map([["i", inPort]]), outputs: new Map([["o", outPort]]), onstatechange: null }, sent, steps, locks, autos, bk, base };
 }

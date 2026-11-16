@@ -14,6 +14,7 @@ export function tags(trailer) {
     sections: at(0x57, (v) => v === 4),
     backup: at(0x42, (v) => v >= 1 && v <= 3),
     krst: at(0x58, (v) => v > 0 && v <= 127),                    /* the tablet commands: bit 0 PERF, 1 KEYMAP, 2 SLICE, 3 DRUMMUTE, 4 CLEARALL, 5 HISS, 6 MLEARN */
+    push: at(0x5A, (v) => v > 0 && v <= 3),                      /* pushes: bit 0 FM6_CHANGED (94), bit 1 MENU_CHANGED (95) */
     kit: at(0x59, (v) => v === 1),                               /* the USER drum kit: cmds 88..93 (every number of the kit tables) */
     chain: trailer[0] === 16,
   };

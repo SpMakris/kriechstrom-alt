@@ -246,6 +246,23 @@ ok(n > 10, "pulses were scheduled after a tempo change");
   ok(bad.rc === 1, "kit: a slot out of range is refused");
 }
 
+
+/* ---- FM6 and MENU pushes ---- */
+{
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+  ok(dev.tags.push === 3, "push: INFO 5A 01 3 (FM6_CHANGED, MENU_CHANGED)");
+  const fm = []; dev.on("fm6", (t) => fm.push(t));
+  const mn = []; dev.on("menu", (id, v) => mn.push([id, v]));
+  const before = await dev.fm6Read(dev.A.FM6.TARGET.TRACK, 1);
+  dev.mock.fm6MachineSet(1, 0, 33); await tick();
+  const after = await dev.fm6Read(dev.A.FM6.TARGET.TRACK, 1);
+  ok(eq(fm, [1]) && JSON.stringify(before) !== JSON.stringify(after), "FM6_CHANGED: announced with the track, and the voice read again is the machine's");
+  const items = await Ext.menu(dev), it = items[0], nv = it.value === it.min ? it.max : it.min;
+  dev.mock.menuMachineSet(it.id, nv); await tick();
+  ok(eq(mn, [[it.id, nv]]), "MENU_CHANGED: announced with the setting and its value");
+  ok((await Ext.menu(dev))[0].value === nv, "MENU_CHANGED: the setting read again has it");
+}
+
 dev.close();
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 process.exit(failed ? 1 : 0);

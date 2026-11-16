@@ -319,5 +319,10 @@ export function Fm6Screen(ctx) {
     if (!st.V) { root.append(el("div", { class: "empty" }, el("p", { text: st.state === "error" ? "Could not read the patch." : "Reading the patch..." }))); return; }
     root.append(...[head(), el("div", { class: "fbody" }, el("div", { class: "fleft" }, algCard()), el("div", { class: "fright" }, opTabs(), st.tab === "op" ? opPanel() : voicePanel())), sheet(), file].filter(Boolean));
   }
+  /* the machine wrote this track's voice (its knobs, a patch load): read it again, unless a change of ours is still to go out */
+  d().on("fm6", async (t) => {
+    if (t !== st.t || !st.V || st.timer) return;
+    try { const V = await d().fm6Read(FM6().TARGET.TRACK, t); if (t === st.t && !st.timer) { st.V = V; render(); } } catch (e) { /* the next push reads it */ }
+  });
   return { el: root, open, render, leave() { clearTimeout(st.timer); if (st.live && st.timer) send(); } };
 }
